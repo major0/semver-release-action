@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    uses: ./.github/workflows/_reusable-lint.yml
+
+  test:
+    uses: ./.github/workflows/_reusable-test.yml
+    with:
+      coverage-threshold: 90
