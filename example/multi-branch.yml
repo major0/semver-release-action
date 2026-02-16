@@ -1,0 +1,44 @@
+# Multi-Branch Release Workflow
+# Supports multiple active release branches (e.g., v1.x and v2.x)
+
+name: Multi-Branch Release
+
+on:
+  create:
+  push:
+    branches:
+      - 'release/**'
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for multi-branch support
+
+      - name: Run Semantic Versioning
+        id: semver
+        uses: major0/semver-release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          debug: 'true'
+
+      - name: Build and Test
+        if: steps.semver.outputs.tag-type != 'skipped'
+        run: |
+          echo "Building version ${{ steps.semver.outputs.tag }}"
+          # Add your build steps here
+
+      - name: Create GitHub Release
+        if: steps.semver.outputs.tag-type == 'ga' || steps.semver.outputs.tag-type == 'patch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.semver.outputs.tag }}
+          generate_release_notes: true
