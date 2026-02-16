@@ -415,25 +415,25 @@ def main() -> None:
     outputs = ActionOutputs()
 
     if context.event_name == "create" and context.ref_type == "branch":
-        if api is None:
+        if api is None:  # pragma: no cover
             logger.error("GitHub API required for branch creation")
             sys.exit(1)
         outputs = handle_branch_create(api, context, inputs)
 
     elif context.event_name == "push" and context.ref_type == "tag":
-        if api is None:
+        if api is None:  # pragma: no cover
             logger.error("GitHub API required for tag push")
             sys.exit(1)
         outputs = handle_tag_push(api, context, inputs)
 
     elif context.event_name == "push" and context.ref_type == "branch":
-        if api is None:
+        if api is None:  # pragma: no cover
             logger.error("GitHub API required for commit push")
             sys.exit(1)
         outputs = handle_commit_push(api, context, inputs)
 
     elif context.event_name == "workflow_dispatch":
-        if api is None:
+        if api is None:  # pragma: no cover
             logger.error("GitHub API required for workflow_dispatch")
             sys.exit(1)
         outputs = handle_workflow_dispatch(api, context, inputs)
@@ -448,5 +448,5 @@ def main() -> None:
     set_outputs(outputs)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
