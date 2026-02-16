@@ -1,12 +1,14 @@
 """Shared pytest fixtures for the test suite."""
 
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 
 @pytest.fixture
-def mock_github_api():
+def mock_github_api() -> MagicMock:
     """Create a mock GitHubAPI instance for unit tests."""
     mock_api = MagicMock()
     mock_api.list_tags.return_value = []
@@ -17,7 +19,7 @@ def mock_github_api():
 
 
 @pytest.fixture
-def mock_github_env(monkeypatch):
+def mock_github_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Set up mock GitHub environment variables."""
     env_vars = {
         "GITHUB_EVENT_NAME": "push",
@@ -33,7 +35,7 @@ def mock_github_env(monkeypatch):
 
 
 @pytest.fixture
-def mock_pygithub():
+def mock_pygithub() -> Generator[dict[str, Any], None, None]:
     """Patch PyGithub for unit tests."""
     with patch("github.Github") as mock_github:
         mock_repo = MagicMock()
@@ -42,7 +44,7 @@ def mock_pygithub():
 
 
 @pytest.fixture
-def sample_tags():
+def sample_tags() -> list[str]:
     """Sample tag data for testing."""
     return [
         "v1.0.0-rc1",
@@ -55,7 +57,7 @@ def sample_tags():
 
 
 @pytest.fixture
-def sample_branches():
+def sample_branches() -> dict[str, list[str]]:
     """Sample branch names for testing."""
     return {
         "valid": [

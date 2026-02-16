@@ -8,3 +8,6 @@ hypothesis>=6.92.0
 
 # Linting and formatting
 ruff>=0.3.0
+
+# Static type checking
+mypy>=1.8.0

@@ -11,7 +11,7 @@ from src.github_api import GitHubAPI
 class TestGitHubAPIInit:
     """Tests for GitHubAPI initialization and token handling."""
 
-    def test_init_with_explicit_token_and_repo(self):
+    def test_init_with_explicit_token_and_repo(self) -> None:
         """GitHubAPI initializes with explicit token and repository."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -22,7 +22,7 @@ class TestGitHubAPIInit:
             mock_github.assert_called_once_with("test-token")
             mock_github.return_value.get_repo.assert_called_once_with("owner/repo")
 
-    def test_init_with_env_vars(self, monkeypatch):
+    def test_init_with_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GitHubAPI uses environment variables when parameters not provided."""
         monkeypatch.setenv("GITHUB_TOKEN", "env-token")
         monkeypatch.setenv("GITHUB_REPOSITORY", "env-owner/env-repo")
@@ -36,7 +36,7 @@ class TestGitHubAPIInit:
             mock_github.assert_called_once_with("env-token")
             mock_github.return_value.get_repo.assert_called_once_with("env-owner/env-repo")
 
-    def test_init_missing_token_raises_error(self, monkeypatch):
+    def test_init_missing_token_raises_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GitHubAPI raises ValueError when token is missing."""
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
@@ -44,7 +44,7 @@ class TestGitHubAPIInit:
         with pytest.raises(ValueError, match="GitHub token is required"):
             GitHubAPI()
 
-    def test_init_missing_repository_raises_error(self, monkeypatch):
+    def test_init_missing_repository_raises_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GitHubAPI raises ValueError when repository is missing."""
         monkeypatch.setenv("GITHUB_TOKEN", "test-token")
         monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
@@ -56,7 +56,7 @@ class TestGitHubAPIInit:
 class TestListTags:
     """Tests for GitHubAPI.list_tags method."""
 
-    def test_list_tags_returns_all_tags(self):
+    def test_list_tags_returns_all_tags(self) -> None:
         """list_tags returns all repository tags."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -70,7 +70,7 @@ class TestListTags:
             assert result == mock_tags
             mock_repo.get_tags.assert_called_once()
 
-    def test_list_tags_empty_repository(self):
+    def test_list_tags_empty_repository(self) -> None:
         """list_tags returns empty list for repository with no tags."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -86,7 +86,7 @@ class TestListTags:
 class TestCreateTag:
     """Tests for GitHubAPI.create_tag method."""
 
-    def test_create_tag_creates_annotated_tag(self):
+    def test_create_tag_creates_annotated_tag(self) -> None:
         """create_tag creates annotated tag with reference."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -108,7 +108,7 @@ class TestCreateTag:
                 sha="tag-sha-123",
             )
 
-    def test_create_tag_default_message(self):
+    def test_create_tag_default_message(self) -> None:
         """create_tag uses default message when not provided."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -126,7 +126,7 @@ class TestCreateTag:
                 type="commit",
             )
 
-    def test_create_tag_api_failure(self):
+    def test_create_tag_api_failure(self) -> None:
         """create_tag raises GithubException on API failure."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -142,7 +142,7 @@ class TestCreateTag:
 class TestUpdateTag:
     """Tests for GitHubAPI.update_tag method."""
 
-    def test_update_tag_force_pushes(self):
+    def test_update_tag_force_pushes(self) -> None:
         """update_tag force-pushes tag to new commit."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -156,7 +156,7 @@ class TestUpdateTag:
             mock_repo.get_git_ref.assert_called_once_with("tags/v1")
             mock_ref.edit.assert_called_once_with(sha="new-commit-sha", force=True)
 
-    def test_update_tag_nonexistent_tag(self):
+    def test_update_tag_nonexistent_tag(self) -> None:
         """update_tag raises GithubException for nonexistent tag."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -172,7 +172,7 @@ class TestUpdateTag:
 class TestGetBranchCommits:
     """Tests for GitHubAPI.get_branch_commits method."""
 
-    def test_get_branch_commits_returns_commits(self):
+    def test_get_branch_commits_returns_commits(self) -> None:
         """get_branch_commits returns list of commits from branch."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -186,7 +186,7 @@ class TestGetBranchCommits:
             assert result == mock_commits
             mock_repo.get_commits.assert_called_once_with(sha="release/v1.0")
 
-    def test_get_branch_commits_nonexistent_branch(self):
+    def test_get_branch_commits_nonexistent_branch(self) -> None:
         """get_branch_commits raises GithubException for nonexistent branch."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -202,7 +202,7 @@ class TestGetBranchCommits:
 class TestTagExists:
     """Tests for GitHubAPI.tag_exists method."""
 
-    def test_tag_exists_returns_true(self):
+    def test_tag_exists_returns_true(self) -> None:
         """tag_exists returns True when tag exists."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -215,7 +215,7 @@ class TestTagExists:
             assert result is True
             mock_repo.get_git_ref.assert_called_once_with("tags/v1.0.0")
 
-    def test_tag_exists_returns_false(self):
+    def test_tag_exists_returns_false(self) -> None:
         """tag_exists returns False when tag doesn't exist."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -231,7 +231,7 @@ class TestTagExists:
 class TestGetTagCommitSha:
     """Tests for GitHubAPI.get_tag_commit_sha method."""
 
-    def test_get_tag_commit_sha_lightweight_tag(self):
+    def test_get_tag_commit_sha_lightweight_tag(self) -> None:
         """get_tag_commit_sha returns SHA for lightweight tag."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -246,7 +246,7 @@ class TestGetTagCommitSha:
 
             assert result == "commit-sha-123"
 
-    def test_get_tag_commit_sha_annotated_tag(self):
+    def test_get_tag_commit_sha_annotated_tag(self) -> None:
         """get_tag_commit_sha dereferences annotated tag to commit SHA."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
@@ -265,7 +265,7 @@ class TestGetTagCommitSha:
             assert result == "actual-commit-sha"
             mock_repo.get_git_tag.assert_called_once_with("tag-object-sha")
 
-    def test_get_tag_commit_sha_nonexistent_tag(self):
+    def test_get_tag_commit_sha_nonexistent_tag(self) -> None:
         """get_tag_commit_sha returns None for nonexistent tag."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
