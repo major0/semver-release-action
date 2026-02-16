@@ -820,3 +820,303 @@ class TestAliasTagCorrectness:
             expected = (major, minor, expected_patch)
 
             assert highest == expected, f"For v{major}.{minor} series, " f"expected highest {expected}, got {highest}"
+
+
+# Strategy for generating valid SemVer tag names
+@st.composite
+def valid_semver_tag(draw: st.DrawFn) -> str:
+    """Generate valid SemVer tag names (RC, GA, or patch)."""
+    major = draw(st.integers(min_value=0, max_value=10))
+    minor = draw(st.integers(min_value=0, max_value=10))
+    tag_type = draw(st.sampled_from(["rc", "ga", "patch"]))
+
+    if tag_type == "rc":
+        rc_num = draw(st.integers(min_value=1, max_value=20))
+        return f"v{major}.{minor}.0-rc{rc_num}"
+    elif tag_type == "ga":
+        return f"v{major}.{minor}.0"
+    else:  # patch
+        patch_num = draw(st.integers(min_value=1, max_value=20))
+        return f"v{major}.{minor}.{patch_num}"
+
+
+# Strategy for generating commit SHA-like strings
+@st.composite
+def commit_sha(draw: st.DrawFn) -> str:
+    """Generate a commit SHA-like string (40 hex characters)."""
+    chars = "0123456789abcdef"
+    sha = "".join(draw(st.sampled_from(chars)) for _ in range(40))
+    return sha
+
+
+# Strategy for generating a commit history for a branch
+@st.composite
+def branch_commit_history(draw: st.DrawFn) -> list[str]:
+    """Generate a list of commit SHAs representing a branch history."""
+    num_commits = draw(st.integers(min_value=1, max_value=20))
+    commits = [draw(commit_sha()) for _ in range(num_commits)]
+    return commits
+
+
+class TestManualTagValidation:
+    """Property 5: Manual Tag Validation.
+
+    *For any* manually pushed tag, the action SHALL verify it points to a commit
+    reachable from the corresponding release branch.
+
+    **Validates: Requirements 5.1, 5.2, 5.3**
+    """
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=10),
+        minor=st.integers(min_value=0, max_value=10),
+        branch_commits=branch_commit_history(),
+    )
+    def test_tag_on_branch_is_accepted(self, major: int, minor: int, branch_commits: list[str]) -> None:
+        """Tags pointing to release branch commits SHALL be accepted.
+
+        **Validates: Requirements 5.1**
+        """
+        from unittest.mock import MagicMock
+
+        from src.main import _validate_tag_on_branch
+
+        mock_api = MagicMock()
+
+        # Create mock commit objects for the branch
+        mock_commits = []
+        for sha in branch_commits:
+            commit = MagicMock()
+            commit.sha = sha
+            mock_commits.append(commit)
+        mock_api.get_branch_commits.return_value = mock_commits
+
+        branch_name = f"release/v{major}.{minor}"
+
+        # Pick a commit from the branch - should be accepted
+        for commit_sha in branch_commits:
+            result = _validate_tag_on_branch(mock_api, commit_sha, branch_name)
+            assert result is True, (
+                f"Tag pointing to commit {commit_sha[:7]} on branch {branch_name} " f"should be accepted"
+            )
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=10),
+        minor=st.integers(min_value=0, max_value=10),
+        branch_commits=branch_commit_history(),
+        other_commit=commit_sha(),
+    )
+    def test_tag_not_on_branch_is_rejected(
+        self, major: int, minor: int, branch_commits: list[str], other_commit: str
+    ) -> None:
+        """Tags pointing to commits NOT on release branch SHALL be rejected.
+
+        **Validates: Requirements 5.1, 5.2**
+        """
+        from unittest.mock import MagicMock
+
+        from hypothesis import assume
+
+        from src.main import _validate_tag_on_branch
+
+        # Ensure the other_commit is not in branch_commits
+        assume(other_commit not in branch_commits)
+
+        mock_api = MagicMock()
+
+        # Create mock commit objects for the branch
+        mock_commits = []
+        for sha in branch_commits:
+            commit = MagicMock()
+            commit.sha = sha
+            mock_commits.append(commit)
+        mock_api.get_branch_commits.return_value = mock_commits
+
+        branch_name = f"release/v{major}.{minor}"
+
+        # A commit not on the branch should be rejected
+        result = _validate_tag_on_branch(mock_api, other_commit, branch_name)
+        assert result is False, (
+            f"Tag pointing to commit {other_commit[:7]} NOT on branch {branch_name} " f"should be rejected"
+        )
+
+    @settings(max_examples=100)
+    @given(
+        tag_name=valid_semver_tag(),
+        branch_commits=branch_commit_history(),
+    )
+    def test_tag_version_matches_branch(self, tag_name: str, branch_commits: list[str]) -> None:
+        """Tag version SHALL correspond to the correct release branch.
+
+        **Validates: Requirements 5.1, 5.3**
+        """
+        from unittest.mock import MagicMock
+
+        from src.main import _parse_tag_version, _validate_tag_on_branch
+
+        # Parse the tag to get major.minor
+        version = _parse_tag_version(tag_name)
+        assert version is not None, f"Tag {tag_name} should be parseable"
+
+        major, minor = version
+        expected_branch = f"release/v{major}.{minor}"
+
+        mock_api = MagicMock()
+
+        # Create mock commit objects for the branch
+        mock_commits = []
+        for sha in branch_commits:
+            commit = MagicMock()
+            commit.sha = sha
+            mock_commits.append(commit)
+        mock_api.get_branch_commits.return_value = mock_commits
+
+        # A commit on the correct branch should be accepted
+        commit_sha = branch_commits[0]
+        result = _validate_tag_on_branch(mock_api, commit_sha, expected_branch)
+        assert result is True, f"Tag {tag_name} pointing to commit on {expected_branch} should be accepted"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=10),
+        minor=st.integers(min_value=0, max_value=10),
+    )
+    def test_api_error_returns_false(self, major: int, minor: int) -> None:
+        """API errors during validation SHALL result in rejection.
+
+        **Validates: Requirements 5.2**
+        """
+        from unittest.mock import MagicMock
+
+        from src.main import _validate_tag_on_branch
+
+        mock_api = MagicMock()
+        mock_api.get_branch_commits.side_effect = Exception("API error")
+
+        branch_name = f"release/v{major}.{minor}"
+        commit_sha = "a" * 40  # Valid SHA format
+
+        result = _validate_tag_on_branch(mock_api, commit_sha, branch_name)
+        assert result is False, "API errors should result in rejection"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=10),
+        minor=st.integers(min_value=0, max_value=10),
+        branch_commits=branch_commit_history(),
+        tag_type=st.sampled_from(["rc", "ga", "patch"]),
+    )
+    def test_all_tag_types_validated_consistently(
+        self, major: int, minor: int, branch_commits: list[str], tag_type: str
+    ) -> None:
+        """All tag types (RC, GA, patch) SHALL be validated consistently.
+
+        **Validates: Requirements 5.1, 5.3**
+        """
+        from unittest.mock import MagicMock
+
+        from src.main import _validate_tag_on_branch
+        from src.tags import is_ga_tag, is_patch_tag, is_rc_tag
+
+        mock_api = MagicMock()
+
+        # Create mock commit objects for the branch
+        mock_commits = []
+        for sha in branch_commits:
+            commit = MagicMock()
+            commit.sha = sha
+            mock_commits.append(commit)
+        mock_api.get_branch_commits.return_value = mock_commits
+
+        branch_name = f"release/v{major}.{minor}"
+
+        # Generate tag based on type
+        if tag_type == "rc":
+            tag_name = f"v{major}.{minor}.0-rc1"
+            assert is_rc_tag(tag_name)
+        elif tag_type == "ga":
+            tag_name = f"v{major}.{minor}.0"
+            assert is_ga_tag(tag_name)
+        else:
+            tag_name = f"v{major}.{minor}.1"
+            assert is_patch_tag(tag_name)
+
+        # Validation should work the same for all tag types
+        commit_sha = branch_commits[0]
+        result = _validate_tag_on_branch(mock_api, commit_sha, branch_name)
+        assert result is True, f"{tag_type.upper()} tag {tag_name} pointing to commit on branch " f"should be accepted"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=10),
+        minor=st.integers(min_value=0, max_value=10),
+    )
+    def test_empty_branch_rejects_all_commits(self, major: int, minor: int) -> None:
+        """Empty branch (no commits) SHALL reject all tags.
+
+        **Validates: Requirements 5.2**
+        """
+        from unittest.mock import MagicMock
+
+        from src.main import _validate_tag_on_branch
+
+        mock_api = MagicMock()
+        mock_api.get_branch_commits.return_value = []  # Empty branch
+
+        branch_name = f"release/v{major}.{minor}"
+        commit_sha = "a" * 40  # Any commit SHA
+
+        result = _validate_tag_on_branch(mock_api, commit_sha, branch_name)
+        assert result is False, "Empty branch should reject all commits"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=10),
+        minor=st.integers(min_value=0, max_value=10),
+        wrong_major=st.integers(min_value=0, max_value=10),
+        wrong_minor=st.integers(min_value=0, max_value=10),
+        branch_commits=branch_commit_history(),
+    )
+    def test_tag_on_wrong_branch_is_rejected(
+        self,
+        major: int,
+        minor: int,
+        wrong_major: int,
+        wrong_minor: int,
+        branch_commits: list[str],
+    ) -> None:
+        """Tags validated against wrong branch SHALL be rejected.
+
+        **Validates: Requirements 5.1, 5.2**
+        """
+        from unittest.mock import MagicMock
+
+        from hypothesis import assume
+
+        from src.main import _validate_tag_on_branch
+
+        # Ensure we're checking against a different branch
+        assume(major != wrong_major or minor != wrong_minor)
+
+        mock_api = MagicMock()
+
+        # The correct branch has commits
+        correct_branch_commits = []
+        for sha in branch_commits:
+            commit = MagicMock()
+            commit.sha = sha
+            correct_branch_commits.append(commit)
+
+        # The wrong branch has no commits (or different commits)
+        mock_api.get_branch_commits.return_value = []
+
+        wrong_branch = f"release/v{wrong_major}.{wrong_minor}"
+        commit_sha = branch_commits[0]
+
+        # Validating against wrong branch should fail
+        result = _validate_tag_on_branch(mock_api, commit_sha, wrong_branch)
+        assert result is False, (
+            f"Commit from release/v{major}.{minor} validated against " f"{wrong_branch} should be rejected"
+        )
