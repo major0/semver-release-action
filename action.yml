@@ -23,6 +23,10 @@ inputs:
     description: 'Target release branch for workflow_dispatch (e.g., release/v1.2)'
     required: false
     default: ''
+  aliases:
+    description: 'Create version alias tags (vX, vX.Y) for non-RC releases'
+    required: false
+    default: 'false'
 
 outputs:
   tag:
@@ -42,3 +46,4 @@ runs:
     INPUT_DEBUG: ${{ inputs.debug }}
     INPUT_DRY_RUN: ${{ inputs.dry-run }}
     INPUT_TARGET_BRANCH: ${{ inputs.target-branch }}
+    INPUT_ALIASES: ${{ inputs.aliases }}

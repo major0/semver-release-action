@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc*'
+
+jobs:
+  lint:
+    uses: ./.github/workflows/_reusable-lint.yml
+
+  test:
+    uses: ./.github/workflows/_reusable-test.yml
+
+  build-and-push:
+    needs: [lint, test]
+    uses: ./.github/workflows/_reusable-docker-build.yml
+    with:
+      version: ${{ github.ref_name }}
+      push: true
+    permissions:
+      contents: read
+      packages: write
+
+  release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version info
+        id: version
+        run: .github/scripts/extract-version.sh "${{ github.ref_name }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-rc') }}

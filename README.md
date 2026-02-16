@@ -37,6 +37,7 @@ release/v1.2 branch created → v1.2.0-rc1
 | `debug` | Enable verbose debug logging | No | `false` |
 | `dry-run` | Simulate actions without creating tags | No | `false` |
 | `target-branch` | Target release branch for workflow_dispatch | No | `''` |
+| `aliases` | Create version alias tags (vX, vX.Y) | No | `false` |
 
 ## Outputs
 

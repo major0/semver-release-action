@@ -44,6 +44,7 @@ class ActionInputs:
     debug: bool
     dry_run: bool
     target_branch: str
+    aliases: bool = False
 
 
 @dataclass
@@ -81,6 +82,7 @@ def parse_inputs() -> ActionInputs:
         debug=os.environ.get("INPUT_DEBUG", "false").lower() == "true",
         dry_run=os.environ.get("INPUT_DRY_RUN", "false").lower() == "true",
         target_branch=os.environ.get("INPUT_TARGET_BRANCH", ""),
+        aliases=os.environ.get("INPUT_ALIASES", "false").lower() == "true",
     )
 
 
@@ -231,8 +233,9 @@ def handle_commit_push(
         else:
             create_tag(api, tag_name, context.sha, f"Patch release {tag_name}")
             logger.info("Created patch tag '%s'", tag_name)
-            # Update alias tags for non-RC releases
-            update_alias_tags(api, tag_name, context.sha)
+            # Update alias tags for non-RC releases if enabled
+            if inputs.aliases:
+                update_alias_tags(api, tag_name, context.sha)
     else:
         # No GA, create next RC tag
         tag_name = get_next_rc_tag(api, version.major, version.minor)
@@ -302,12 +305,12 @@ def handle_tag_push(
     elif is_ga_tag(tag_name):
         outputs.tag_type = "ga"
         logger.info("Validated GA tag '%s'", tag_name)
-        if not inputs.dry_run:
+        if not inputs.dry_run and inputs.aliases:
             update_alias_tags(api, tag_name, context.sha)
     else:
         outputs.tag_type = "patch"
         logger.info("Validated patch tag '%s'", tag_name)
-        if not inputs.dry_run:
+        if not inputs.dry_run and inputs.aliases:
             update_alias_tags(api, tag_name, context.sha)
 
     return outputs

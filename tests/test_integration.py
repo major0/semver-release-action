@@ -356,6 +356,7 @@ class TestGATransitionFlow:
             debug=False,
             dry_run=False,
             target_branch="",
+            aliases=True,
         )
 
         handle_tag_push(mock_github_api, context, inputs)
@@ -389,6 +390,7 @@ class TestGATransitionFlow:
             debug=False,
             dry_run=False,
             target_branch="",
+            aliases=True,
         )
 
         handle_tag_push(mock_github_api, context, inputs)
@@ -552,6 +554,7 @@ class TestPatchProgressionFlow:
             debug=False,
             dry_run=False,
             target_branch="",
+            aliases=True,
         )
 
         handle_commit_push(mock_github_api, context, inputs)
@@ -714,6 +717,7 @@ class TestMultiBranchAliasUpdates:
             debug=False,
             dry_run=False,
             target_branch="",
+            aliases=True,
         )
 
         handle_tag_push(mock_github_api, context, inputs)
@@ -753,6 +757,7 @@ class TestMultiBranchAliasUpdates:
             debug=False,
             dry_run=False,
             target_branch="",
+            aliases=True,
         )
 
         handle_tag_push(mock_github_api, context, inputs)
@@ -792,6 +797,7 @@ class TestMultiBranchAliasUpdates:
             debug=False,
             dry_run=False,
             target_branch="",
+            aliases=True,
         )
 
         handle_tag_push(mock_github_api, context, inputs)
