@@ -1,0 +1,40 @@
+name: Semantic Versioning
+
+on:
+  create:
+  push:
+    branches:
+      - 'release/**'
+  workflow_dispatch:
+    inputs:
+      target-branch:
+        description: 'Target release branch (e.g., release/v1.2)'
+        required: false
+        type: string
+      dry-run:
+        description: 'Simulate without creating tags'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  semver:
+    # Only run for branch creation or push to release branches
+    if: >-
+      (github.event_name == 'create' && github.ref_type == 'branch' && startsWith(github.ref_name, 'release/')) ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'release/')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semantic Versioning Action
+        uses: ./
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          debug: 'true'
+          dry-run: ${{ inputs.dry-run || 'false' }}
+          target-branch: ${{ inputs.target-branch || '' }}
