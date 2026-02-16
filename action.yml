@@ -1,0 +1,44 @@
+name: 'Semantic Versioning Release Action'
+description: 'Automates semantic versioning (SemVer 2.0.0) and release management for release branch workflows'
+author: 'Your Name'
+
+branding:
+  icon: 'tag'
+  color: 'blue'
+
+inputs:
+  token:
+    description: 'GitHub token for API operations (tag creation, releases)'
+    required: false
+    default: ${{ github.token }}
+  debug:
+    description: 'Enable verbose debug logging'
+    required: false
+    default: 'false'
+  dry-run:
+    description: 'Simulate actions without creating tags'
+    required: false
+    default: 'false'
+  target-branch:
+    description: 'Target release branch for workflow_dispatch (e.g., release/v1.2)'
+    required: false
+    default: ''
+
+outputs:
+  tag:
+    description: 'The tag that was created or validated'
+  tag-type:
+    description: 'Type of tag: rc, patch, ga, or skipped'
+  major:
+    description: 'Major version number'
+  minor:
+    description: 'Minor version number'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    INPUT_TOKEN: ${{ inputs.token }}
+    INPUT_DEBUG: ${{ inputs.debug }}
+    INPUT_DRY_RUN: ${{ inputs.dry-run }}
+    INPUT_TARGET_BRANCH: ${{ inputs.target-branch }}
