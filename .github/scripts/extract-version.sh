@@ -37,8 +37,8 @@ is_ga() {
 {
   VERSION="$(strip_v "${1}")"
   echo "version=${VERSION}"
-  echo "major=v$(major "${VERSION}")"
-  echo "minor=v$(major "${VERSION}").$(minor "${VERSION}")"
+  echo "major=$(major "${VERSION}")"
+  echo "minor=$(minor "${VERSION}")"
   echo "patch=$(patch "${VERSION}")"
   echo "prerelease=$(prerelease "${VERSION}")"
   echo "is_ga=$(is_ga "${VERSION}")"
