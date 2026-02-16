@@ -24,13 +24,7 @@ from src.tags import (
     is_patch_tag,
     is_rc_tag,
 )
-
-
-def _make_tag(name: str) -> MagicMock:
-    """Create a mock tag object with the given name."""
-    tag = MagicMock()
-    tag.name = name
-    return tag
+from tests.conftest import make_tag
 
 
 class TestFindLatestRc:
@@ -45,24 +39,24 @@ class TestFindLatestRc:
     def test_no_matching_rc_tags_returns_none(self, mock_github_api: MagicMock) -> None:
         """Test that no matching RC tags returns None."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.0.0-rc1"),
-            _make_tag("v2.0.0-rc1"),
+            make_tag("v1.0.0-rc1"),
+            make_tag("v2.0.0-rc1"),
         ]
         result = find_latest_rc(mock_github_api, 1, 2)
         assert result is None
 
     def test_single_rc_tag(self, mock_github_api: MagicMock) -> None:
         """Test finding single RC tag."""
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0-rc1")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0-rc1")]
         result = find_latest_rc(mock_github_api, 1, 2)
         assert result == 1
 
     def test_multiple_rc_tags_returns_highest(self, mock_github_api: MagicMock) -> None:
         """Test that highest RC number is returned."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0-rc1"),
-            _make_tag("v1.2.0-rc3"),
-            _make_tag("v1.2.0-rc2"),
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0-rc3"),
+            make_tag("v1.2.0-rc2"),
         ]
         result = find_latest_rc(mock_github_api, 1, 2)
         assert result == 3
@@ -70,9 +64,9 @@ class TestFindLatestRc:
     def test_filters_by_major_minor(self, mock_github_api: MagicMock) -> None:
         """Test that only matching major.minor versions are considered."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0-rc5"),
-            _make_tag("v1.3.0-rc10"),
-            _make_tag("v2.2.0-rc20"),
+            make_tag("v1.2.0-rc5"),
+            make_tag("v1.3.0-rc10"),
+            make_tag("v2.2.0-rc20"),
         ]
         result = find_latest_rc(mock_github_api, 1, 2)
         assert result == 5
@@ -80,9 +74,9 @@ class TestFindLatestRc:
     def test_ignores_non_rc_tags(self, mock_github_api: MagicMock) -> None:
         """Test that GA and patch tags are ignored."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.1"),
-            _make_tag("v1.2.0-rc2"),
+            make_tag("v1.2.0"),
+            make_tag("v1.2.1"),
+            make_tag("v1.2.0-rc2"),
         ]
         result = find_latest_rc(mock_github_api, 1, 2)
         assert result == 2
@@ -100,31 +94,31 @@ class TestFindLatestPatch:
     def test_no_matching_patch_tags_returns_none(self, mock_github_api: MagicMock) -> None:
         """Test that no matching patch tags returns None."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.0.0"),
-            _make_tag("v2.0.0"),
+            make_tag("v1.0.0"),
+            make_tag("v2.0.0"),
         ]
         result = find_latest_patch(mock_github_api, 1, 2)
         assert result is None
 
     def test_ga_tag_returns_zero(self, mock_github_api: MagicMock) -> None:
         """Test that GA tag (vX.Y.0) returns 0."""
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
         result = find_latest_patch(mock_github_api, 1, 2)
         assert result == 0
 
     def test_single_patch_tag(self, mock_github_api: MagicMock) -> None:
         """Test finding single patch tag."""
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.3")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.3")]
         result = find_latest_patch(mock_github_api, 1, 2)
         assert result == 3
 
     def test_multiple_patch_tags_returns_highest(self, mock_github_api: MagicMock) -> None:
         """Test that highest patch number is returned."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.1"),
-            _make_tag("v1.2.5"),
-            _make_tag("v1.2.3"),
+            make_tag("v1.2.0"),
+            make_tag("v1.2.1"),
+            make_tag("v1.2.5"),
+            make_tag("v1.2.3"),
         ]
         result = find_latest_patch(mock_github_api, 1, 2)
         assert result == 5
@@ -132,9 +126,9 @@ class TestFindLatestPatch:
     def test_filters_by_major_minor(self, mock_github_api: MagicMock) -> None:
         """Test that only matching major.minor versions are considered."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.2"),
-            _make_tag("v1.3.10"),
-            _make_tag("v2.2.20"),
+            make_tag("v1.2.2"),
+            make_tag("v1.3.10"),
+            make_tag("v2.2.20"),
         ]
         result = find_latest_patch(mock_github_api, 1, 2)
         assert result == 2
@@ -142,9 +136,9 @@ class TestFindLatestPatch:
     def test_ignores_rc_tags(self, mock_github_api: MagicMock) -> None:
         """Test that RC tags are ignored."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0-rc1"),
-            _make_tag("v1.2.0-rc5"),
-            _make_tag("v1.2.1"),
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0-rc5"),
+            make_tag("v1.2.1"),
         ]
         result = find_latest_patch(mock_github_api, 1, 2)
         assert result == 1
@@ -240,8 +234,8 @@ class TestGetNextRcTag:
     def test_next_rc_tag(self, mock_github_api: MagicMock) -> None:
         """Test getting next RC tag after existing ones."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0-rc1"),
-            _make_tag("v1.2.0-rc2"),
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0-rc2"),
         ]
         result = get_next_rc_tag(mock_github_api, 1, 2)
         assert result == "v1.2.0-rc3"
@@ -252,16 +246,16 @@ class TestGetNextPatchTag:
 
     def test_first_patch_after_ga(self, mock_github_api: MagicMock) -> None:
         """Test getting first patch tag after GA."""
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
         result = get_next_patch_tag(mock_github_api, 1, 2)
         assert result == "v1.2.1"
 
     def test_next_patch_tag(self, mock_github_api: MagicMock) -> None:
         """Test getting next patch tag after existing ones."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.1"),
-            _make_tag("v1.2.2"),
+            make_tag("v1.2.0"),
+            make_tag("v1.2.1"),
+            make_tag("v1.2.2"),
         ]
         result = get_next_patch_tag(mock_github_api, 1, 2)
         assert result == "v1.2.3"

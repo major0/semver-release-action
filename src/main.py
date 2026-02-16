@@ -12,6 +12,7 @@ References:
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import sys
@@ -68,8 +69,17 @@ class ActionOutputs:
     minor: str = ""
 
 
-def parse_inputs() -> ActionInputs:
-    """Parse action inputs from environment variables.
+def parse_inputs(args: list[str] | None = None) -> ActionInputs:
+    """Parse action inputs from CLI arguments or environment variables.
+
+    CLI arguments take precedence over environment variables.
+    When run as a GitHub Action, environment variables are used.
+    When run from CLI, arguments can be provided directly.
+
+    Args:
+        args: Optional list of CLI arguments. If None, uses environment
+              variables only (GitHub Actions mode). Pass sys.argv[1:] for
+              CLI mode.
 
     Returns:
         ActionInputs with parsed values.
@@ -77,12 +87,67 @@ def parse_inputs() -> ActionInputs:
     References:
         - Requirements 8.3, 8.4, 8.5, 8.7
     """
+    parser = argparse.ArgumentParser(
+        description="Semantic Versioning Release Action - Automate SemVer tagging",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Environment Variables (used as defaults when CLI args not provided):
+  INPUT_TOKEN, GITHUB_TOKEN    GitHub token for authentication
+  INPUT_DEBUG                  Enable debug logging (true/false)
+  INPUT_DRY_RUN                Dry-run mode, don't create tags (true/false)
+  INPUT_TARGET_BRANCH          Target branch for workflow_dispatch
+  INPUT_ALIASES                Update alias tags (true/false)
+
+Examples:
+  # Run with environment variables (GitHub Actions mode)
+  python -m src.main
+
+  # Run with CLI arguments (local testing)
+  python -m src.main --token ghp_xxx --dry-run --debug
+
+  # Override specific options
+  python -m src.main --target-branch release/v1.2 --dry-run
+        """,
+    )
+
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("INPUT_TOKEN", os.environ.get("GITHUB_TOKEN", "")),
+        help="GitHub token for authentication (default: from INPUT_TOKEN or GITHUB_TOKEN env)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=os.environ.get("INPUT_DEBUG", "false").lower() == "true",
+        help="Enable debug logging",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=os.environ.get("INPUT_DRY_RUN", "false").lower() == "true",
+        help="Dry-run mode - don't actually create tags",
+    )
+    parser.add_argument(
+        "--target-branch",
+        default=os.environ.get("INPUT_TARGET_BRANCH", ""),
+        help="Target branch for workflow_dispatch events",
+    )
+    parser.add_argument(
+        "--aliases",
+        action="store_true",
+        default=os.environ.get("INPUT_ALIASES", "false").lower() == "true",
+        help="Update major (vX) and minor (vX.Y) alias tags",
+    )
+
+    # Use empty list for GitHub Actions mode (env vars only), or provided args for CLI
+    parsed = parser.parse_args(args if args is not None else [])
+
     return ActionInputs(
-        token=os.environ.get("INPUT_TOKEN", os.environ.get("GITHUB_TOKEN", "")),
-        debug=os.environ.get("INPUT_DEBUG", "false").lower() == "true",
-        dry_run=os.environ.get("INPUT_DRY_RUN", "false").lower() == "true",
-        target_branch=os.environ.get("INPUT_TARGET_BRANCH", ""),
-        aliases=os.environ.get("INPUT_ALIASES", "false").lower() == "true",
+        token=parsed.token,
+        debug=parsed.debug,
+        dry_run=parsed.dry_run,
+        target_branch=parsed.target_branch,
+        aliases=parsed.aliases,
     )
 
 

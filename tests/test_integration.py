@@ -25,23 +25,10 @@ from src.main import (
     handle_tag_push,
     handle_workflow_dispatch,
 )
+from tests.conftest import make_commit, make_tag
 
 if TYPE_CHECKING:
     pass
-
-
-def _make_tag(name: str) -> MagicMock:
-    """Create a mock tag object with the given name."""
-    tag = MagicMock()
-    tag.name = name
-    return tag
-
-
-def _make_commit(sha: str) -> MagicMock:
-    """Create a mock commit object with the given SHA."""
-    commit = MagicMock()
-    commit.sha = sha
-    return commit
 
 
 class TestBranchCreationFlow:
@@ -170,7 +157,7 @@ class TestRCProgressionFlow:
         Validates: Requirements 3.1, 3.2
         """
         # rc1 already exists from branch creation
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0-rc1")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0-rc1")]
         mock_github_api.tag_exists.return_value = False  # No GA exists
 
         context = GitHubContext(
@@ -218,7 +205,7 @@ class TestRCProgressionFlow:
         expected_tags = ["v1.2.0-rc1", "v1.2.0-rc2", "v1.2.0-rc3"]
         for i, expected_tag in enumerate(expected_tags):
             # Update existing tags for each iteration
-            existing_tags = [_make_tag(t) for t in expected_tags[:i]]
+            existing_tags = [make_tag(t) for t in expected_tags[:i]]
             mock_github_api.list_tags.return_value = existing_tags
             mock_github_api.create_tag.reset_mock()
 
@@ -234,9 +221,9 @@ class TestRCProgressionFlow:
         """
         # Existing tags: rc1, rc2, rc3
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0-rc1"),
-            _make_tag("v1.2.0-rc2"),
-            _make_tag("v1.2.0-rc3"),
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0-rc2"),
+            make_tag("v1.2.0-rc3"),
         ]
         mock_github_api.tag_exists.return_value = False  # No GA exists
 
@@ -263,10 +250,10 @@ class TestRCProgressionFlow:
         """Test that RC progression only considers tags for the current branch."""
         # Tags from multiple branches
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.1.0-rc1"),
-            _make_tag("v1.1.0-rc5"),
-            _make_tag("v1.2.0-rc1"),
-            _make_tag("v1.2.0-rc2"),
+            make_tag("v1.1.0-rc1"),
+            make_tag("v1.1.0-rc5"),
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0-rc2"),
         ]
         mock_github_api.tag_exists.return_value = False
 
@@ -303,15 +290,15 @@ class TestGATransitionFlow:
         """
         # Existing RC tags
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0-rc1"),
-            _make_tag("v1.2.0-rc2"),
-            _make_tag("v1.2.0"),  # GA tag being pushed
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0-rc2"),
+            make_tag("v1.2.0"),  # GA tag being pushed
         ]
         mock_github_api.tag_exists.return_value = True
 
         # Mock branch commits to include the tag's commit
         mock_github_api.get_branch_commits.return_value = [
-            _make_commit("ga_commit_sha"),
+            make_commit("ga_commit_sha"),
         ]
 
         context = GitHubContext(
@@ -338,10 +325,10 @@ class TestGATransitionFlow:
 
         Validates: Requirements 6.1, 6.2
         """
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
         mock_github_api.tag_exists.return_value = False  # Aliases don't exist yet
         mock_github_api.get_branch_commits.return_value = [
-            _make_commit("ga_commit_sha"),
+            make_commit("ga_commit_sha"),
         ]
 
         context = GitHubContext(
@@ -372,10 +359,10 @@ class TestGATransitionFlow:
 
         Validates: Requirement 6.3
         """
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
         mock_github_api.tag_exists.return_value = True  # Aliases exist
         mock_github_api.get_branch_commits.return_value = [
-            _make_commit("ga_commit_sha"),
+            make_commit("ga_commit_sha"),
         ]
 
         context = GitHubContext(
@@ -404,7 +391,7 @@ class TestGATransitionFlow:
         Validates: Requirement 5.2
         """
         mock_github_api.get_branch_commits.return_value = [
-            _make_commit("other_commit"),
+            make_commit("other_commit"),
         ]
 
         context = GitHubContext(
@@ -439,8 +426,8 @@ class TestPatchProgressionFlow:
         Validates: Requirement 4.1
         """
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0-rc1"),
-            _make_tag("v1.2.0"),  # GA exists
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0"),  # GA exists
         ]
         mock_github_api.tag_exists.return_value = True  # GA exists
 
@@ -488,8 +475,8 @@ class TestPatchProgressionFlow:
         expected_tags = ["v1.2.1", "v1.2.2", "v1.2.3"]
         for i, expected_tag in enumerate(expected_tags):
             # Update existing tags for each iteration
-            existing_tags = [_make_tag("v1.2.0")]  # GA tag
-            existing_tags.extend([_make_tag(f"v1.2.{j}") for j in range(1, i + 1)])
+            existing_tags = [make_tag("v1.2.0")]  # GA tag
+            existing_tags.extend([make_tag(f"v1.2.{j}") for j in range(1, i + 1)])
             mock_github_api.list_tags.return_value = existing_tags
             mock_github_api.create_tag.reset_mock()
             mock_github_api.update_tag.reset_mock()
@@ -505,10 +492,10 @@ class TestPatchProgressionFlow:
         Validates: Requirements 4.2, 4.3
         """
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.1"),
-            _make_tag("v1.2.2"),
-            _make_tag("v1.2.3"),
+            make_tag("v1.2.0"),
+            make_tag("v1.2.1"),
+            make_tag("v1.2.2"),
+            make_tag("v1.2.3"),
         ]
         mock_github_api.tag_exists.return_value = True  # GA exists
 
@@ -537,8 +524,8 @@ class TestPatchProgressionFlow:
         Validates: Requirements 6.1, 6.2
         """
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.1"),
+            make_tag("v1.2.0"),
+            make_tag("v1.2.1"),
         ]
         mock_github_api.tag_exists.return_value = True
 
@@ -565,10 +552,10 @@ class TestPatchProgressionFlow:
     def test_patch_progression_ignores_other_branches(self, mock_github_api: MagicMock) -> None:
         """Test that patch progression only considers tags for the current branch."""
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.1.0"),
-            _make_tag("v1.1.5"),  # Higher patch on different branch
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.2"),
+            make_tag("v1.1.0"),
+            make_tag("v1.1.5"),  # Higher patch on different branch
+            make_tag("v1.2.0"),
+            make_tag("v1.2.2"),
         ]
         mock_github_api.tag_exists.return_value = True
 
@@ -633,7 +620,7 @@ class TestMultiBranchAliasUpdates:
             repository="owner/repo",
         )
 
-        mock_github_api.list_tags.return_value = [_make_tag("v1.1.0-rc1")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.1.0-rc1")]
         mock_github_api.create_tag.reset_mock()
         outputs_v12 = handle_commit_push(mock_github_api, context_v12, inputs)
         assert outputs_v12.tag == "v1.2.0-rc1"
@@ -655,12 +642,12 @@ class TestMultiBranchAliasUpdates:
         # v1.1 branch has patches up to v1.1.3
         # v1.2 branch has patches up to v1.2.1
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.1.0"),
-            _make_tag("v1.1.1"),
-            _make_tag("v1.1.2"),
-            _make_tag("v1.1.3"),
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.1"),
+            make_tag("v1.1.0"),
+            make_tag("v1.1.1"),
+            make_tag("v1.1.2"),
+            make_tag("v1.1.3"),
+            make_tag("v1.2.0"),
+            make_tag("v1.2.1"),
         ]
 
         # Push to v1.1 should create v1.1.4
@@ -693,16 +680,16 @@ class TestMultiBranchAliasUpdates:
         """
         mock_github_api.tag_exists.return_value = True
         mock_github_api.get_branch_commits.return_value = [
-            _make_commit("highest_commit"),
+            make_commit("highest_commit"),
         ]
 
         # Multiple branches with releases
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.0.0"),
-            _make_tag("v1.0.5"),
-            _make_tag("v1.1.0"),
-            _make_tag("v1.1.2"),
-            _make_tag("v1.2.0"),  # Highest in v1.x
+            make_tag("v1.0.0"),
+            make_tag("v1.0.5"),
+            make_tag("v1.1.0"),
+            make_tag("v1.1.2"),
+            make_tag("v1.2.0"),  # Highest in v1.x
         ]
 
         context = GitHubContext(
@@ -734,15 +721,15 @@ class TestMultiBranchAliasUpdates:
         """
         mock_github_api.tag_exists.return_value = True
         mock_github_api.get_branch_commits.return_value = [
-            _make_commit("lower_commit"),
+            make_commit("lower_commit"),
         ]
 
         # v1.2.0 is highest, pushing v1.1.4
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.1.0"),
-            _make_tag("v1.1.3"),
-            _make_tag("v1.1.4"),  # New tag being pushed
-            _make_tag("v1.2.0"),  # Higher version exists
+            make_tag("v1.1.0"),
+            make_tag("v1.1.3"),
+            make_tag("v1.1.4"),  # New tag being pushed
+            make_tag("v1.2.0"),  # Higher version exists
         ]
 
         context = GitHubContext(
@@ -775,14 +762,14 @@ class TestMultiBranchAliasUpdates:
         """
         mock_github_api.tag_exists.return_value = False  # New aliases
         mock_github_api.get_branch_commits.return_value = [
-            _make_commit("new_minor_commit"),
+            make_commit("new_minor_commit"),
         ]
 
         # v1.3.0 is new highest
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.1.0"),
-            _make_tag("v1.2.0"),
-            _make_tag("v1.3.0"),  # New highest
+            make_tag("v1.1.0"),
+            make_tag("v1.2.0"),
+            make_tag("v1.3.0"),  # New highest
         ]
 
         context = GitHubContext(
@@ -820,7 +807,7 @@ class TestWorkflowDispatchFlow:
 
         Validates: Requirement 8.7
         """
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0-rc1")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0-rc1")]
         mock_github_api.tag_exists.return_value = False  # No GA
 
         context = GitHubContext(
@@ -930,8 +917,8 @@ class TestWorkflowDispatchFlow:
         """
         # GA exists, so should create patch tag
         mock_github_api.list_tags.return_value = [
-            _make_tag("v1.2.0"),
-            _make_tag("v1.2.1"),
+            make_tag("v1.2.0"),
+            make_tag("v1.2.1"),
         ]
         mock_github_api.tag_exists.return_value = True
 
@@ -1032,7 +1019,7 @@ class TestMainEntryPoint:
             output_file = f.name
         monkeypatch.setenv("GITHUB_OUTPUT", output_file)
 
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0-rc1")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0-rc1")]
         mock_github_api.tag_exists.return_value = False
 
         with patch("src.main.GitHubAPI", return_value=mock_github_api):
@@ -1062,8 +1049,8 @@ class TestMainEntryPoint:
             output_file = f.name
         monkeypatch.setenv("GITHUB_OUTPUT", output_file)
 
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0")]
-        mock_github_api.get_branch_commits.return_value = [_make_commit("ga_commit")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
+        mock_github_api.get_branch_commits.return_value = [make_commit("ga_commit")]
         mock_github_api.tag_exists.return_value = False
 
         with patch("src.main.GitHubAPI", return_value=mock_github_api):
@@ -1290,7 +1277,7 @@ class TestMainCoverageGaps:
 
         This covers lines 213-214 - dry-run patch tag logging.
         """
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
         mock_github_api.tag_exists.return_value = True  # GA exists
 
         context = GitHubContext(
@@ -1318,7 +1305,7 @@ class TestMainCoverageGaps:
 
         This covers line 230 - dry-run RC tag logging.
         """
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0-rc1")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0-rc1")]
         mock_github_api.tag_exists.return_value = False  # No GA
 
         context = GitHubContext(
@@ -1346,8 +1333,8 @@ class TestMainCoverageGaps:
 
         This covers lines 278-279 - dry-run GA tag handling.
         """
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0")]
-        mock_github_api.get_branch_commits.return_value = [_make_commit("ga_commit")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
+        mock_github_api.get_branch_commits.return_value = [make_commit("ga_commit")]
 
         context = GitHubContext(
             event_name="push",
@@ -1376,8 +1363,8 @@ class TestMainCoverageGaps:
 
         This covers lines 300-301 - dry-run patch tag handling.
         """
-        mock_github_api.list_tags.return_value = [_make_tag("v1.2.0"), _make_tag("v1.2.1")]
-        mock_github_api.get_branch_commits.return_value = [_make_commit("patch_commit")]
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0"), make_tag("v1.2.1")]
+        mock_github_api.get_branch_commits.return_value = [make_commit("patch_commit")]
 
         context = GitHubContext(
             event_name="push",
@@ -1437,7 +1424,7 @@ class TestMainCoverageGaps:
 
     def test_handle_tag_push_rc_tag(self, mock_github_api: MagicMock) -> None:
         """Test handle_tag_push with RC tag (no alias updates)."""
-        mock_github_api.get_branch_commits.return_value = [_make_commit("rc_commit")]
+        mock_github_api.get_branch_commits.return_value = [make_commit("rc_commit")]
 
         context = GitHubContext(
             event_name="push",

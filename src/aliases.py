@@ -12,37 +12,25 @@ References:
 from __future__ import annotations
 
 import logging
-import re
 from typing import TYPE_CHECKING
+
+from src.tags import PATCH_TAG_PATTERN, is_rc_tag
 
 if TYPE_CHECKING:
     from src.github_api import GitHubAPI
 
 logger = logging.getLogger(__name__)
 
-# Pattern for GA/patch tags: vX.Y.Z (where Z >= 0)
-RELEASE_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
-
-# Pattern for RC tags: vX.Y.0-rcN
-RC_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.0-rc(\d+)$")
-
-
-def is_rc_tag(tag_name: str) -> bool:
-    """Check if a tag is an RC tag.
-
-    Args:
-        tag_name: The tag name to check.
-
-    Returns:
-        True if the tag matches the RC pattern, False otherwise.
-
-    Examples:
-        >>> is_rc_tag("v1.2.0-rc1")
-        True
-        >>> is_rc_tag("v1.2.0")
-        False
-    """
-    return RC_TAG_PATTERN.match(tag_name) is not None
+# Re-export is_rc_tag for backwards compatibility
+__all__ = [
+    "is_rc_tag",
+    "parse_release_tag",
+    "find_highest_major_version",
+    "find_highest_minor_version",
+    "update_alias_tags",
+    "should_update_major_alias",
+    "should_update_minor_alias",
+]
 
 
 def parse_release_tag(tag_name: str) -> tuple[int, int, int] | None:
@@ -60,7 +48,7 @@ def parse_release_tag(tag_name: str) -> tuple[int, int, int] | None:
         >>> parse_release_tag("v1.2.0-rc1")
         None
     """
-    match = RELEASE_TAG_PATTERN.match(tag_name)
+    match = PATCH_TAG_PATTERN.match(tag_name)
     if match:
         return int(match.group(1)), int(match.group(2)), int(match.group(3))
     return None

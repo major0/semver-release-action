@@ -7,6 +7,28 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+def make_tag(name: str) -> MagicMock:
+    """Create a mock tag object with the given name.
+
+    This is a shared helper for creating mock GitHub tag objects
+    used across multiple test modules.
+    """
+    tag = MagicMock()
+    tag.name = name
+    return tag
+
+
+def make_commit(sha: str) -> MagicMock:
+    """Create a mock commit object with the given SHA.
+
+    This is a shared helper for creating mock GitHub commit objects
+    used across multiple test modules.
+    """
+    commit = MagicMock()
+    commit.sha = sha
+    return commit
+
+
 @pytest.fixture
 def mock_github_api() -> MagicMock:
     """Create a mock GitHubAPI instance for unit tests."""
