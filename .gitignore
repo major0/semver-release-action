@@ -27,10 +27,14 @@ ENV/
 
 # Testing
 .pytest_cache/
+.hypothesis/
 .coverage
 htmlcov/
 .tox/
 .nox/
+
+# Type checking
+.mypy_cache/
 
 # Ruff
 .ruff_cache/
