@@ -65,6 +65,7 @@ jobs:
           target-branch: ${{ inputs.target-branch || '' }}
           release-prefix: 'v'
           tag-prefix: 'v'
+          aliases: 'true'
 
   release:
     needs: [semver]
