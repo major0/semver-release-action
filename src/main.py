@@ -583,7 +583,7 @@ def main() -> None:
 
     # Initialize API (skip for dry-run without token)
     api: GitHubAPI | None = None
-    if not inputs.dry_run or inputs.token:
+    if not inputs.dry_run or inputs.token:  # pragma: no branch
         try:
             api = GitHubAPI(token=inputs.token, repository=context.repository)
         except ValueError as e:

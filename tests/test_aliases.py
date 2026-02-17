@@ -254,6 +254,20 @@ class TestUpdateAliasTags:
         assert result["minor"] is True
         assert result["major"] is False
 
+    def test_lower_patch_skips_minor_alias(self, mock_github_api: MagicMock) -> None:
+        """Test that lower patch version skips minor alias update."""
+        mock_github_api.list_tags.return_value = [
+            make_tag("v1.2.0"),
+            make_tag("v1.2.5"),  # Higher patch exists
+        ]
+        mock_github_api.tag_exists.return_value = True
+
+        # v1.2.3 is lower than v1.2.5, so minor alias should NOT be updated
+        result = update_alias_tags(mock_github_api, "v1.2.3", "abc123")
+
+        assert result["minor"] is False
+        assert result["major"] is False  # Also not highest major
+
     def test_invalid_tag_returns_no_updates(self, mock_github_api: MagicMock) -> None:
         """Test that invalid tags don't update aliases."""
         result = update_alias_tags(mock_github_api, "invalid", "abc123")
