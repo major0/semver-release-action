@@ -1,6 +1,6 @@
 [project]
 name = "semver-release-action"
-version = "1.0.0"
+version = "1.1.0"
 description = "GitHub Action for automated semantic versioning and release management"
 requires-python = ">=3.12"
 
