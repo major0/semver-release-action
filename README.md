@@ -41,6 +41,53 @@ release/v1.2 branch created → v1.2.0-rc1
 | `dry-run` | Simulate actions without creating tags | No | `false` |
 | `target-branch` | Target release branch for workflow_dispatch | No | `''` |
 | `aliases` | Create version alias tags (vX, vX.Y) | No | `false` |
+| `release-prefix` | Prefix for release branch names | No | `release/v` |
+| `tag-prefix` | Prefix for version tags and aliases | No | `v` |
+
+### Configurable Prefixes
+
+The `release-prefix` and `tag-prefix` inputs allow customizing branch and tag
+naming conventions. This is useful for mono-repos or teams with different
+naming standards.
+
+**Default behavior (backward compatible):**
+
+```yaml
+- uses: major0/semver-release-action@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    # release-prefix: 'release/v'  # default
+    # tag-prefix: 'v'              # default
+```
+
+- Branch: `release/v1.2` → Tags: `v1.2.0-rc1`, `v1.2.0`, `v1.2.1`
+- Aliases: `v1`, `v1.2`
+
+**Short prefix example:**
+
+```yaml
+- uses: major0/semver-release-action@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    release-prefix: 'v'
+    tag-prefix: 'v'
+```
+
+- Branch: `v1.2` → Tags: `v1.2.0-rc1`, `v1.2.0`
+- Aliases: `v1` only (minor alias `v1.2` skipped to avoid conflict with branch name)
+
+**Custom prefix example:**
+
+```yaml
+- uses: major0/semver-release-action@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    release-prefix: 'pkg-v'
+    tag-prefix: 'pkg-v'
+```
+
+- Branch: `pkg-v1.2` → Tags: `pkg-v1.2.0-rc1`, `pkg-v1.2.0`
+- Aliases: `pkg-v1` only (minor alias skipped when prefixes match)
 
 ## Outputs
 
@@ -69,6 +116,44 @@ The `release/` prefix enables GitHub branch protection rules using wildcards.
 Configure branch protection for `release/*` to protect all release branches
 with a single rule.
 
+## Mono-Repo Usage
+
+For mono-repos with multiple packages, use custom prefixes to version each
+package independently:
+
+```yaml
+# Package A workflow
+- uses: major0/semver-release-action@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    release-prefix: 'pkg-a/v'
+    tag-prefix: 'pkg-a-v'
+    aliases: true
+```
+
+```yaml
+# Package B workflow
+- uses: major0/semver-release-action@v1
+  with:
+    token: ${{ secrets.GITHUB_TOKEN }}
+    release-prefix: 'pkg-b/v'
+    tag-prefix: 'pkg-b-v'
+    aliases: true
+```
+
+This creates independent version streams:
+
+- `pkg-a/v1.0` branch → `pkg-a-v1.0.0`, `pkg-a-v1.0.1`,
+  aliases `pkg-a-v1`, `pkg-a-v1.0`
+- `pkg-b/v2.3` branch → `pkg-b-v2.3.0`, `pkg-b-v2.3.1`,
+  aliases `pkg-b-v2`, `pkg-b-v2.3`
+
+**Alias skip behavior:** When `release-prefix` equals `tag-prefix`, the minor
+alias (`{tag-prefix}X.Y`) is skipped to avoid conflicts with the branch name.
+For example, with `release-prefix: 'v'` and `tag-prefix: 'v'`, the branch
+`v1.2` would conflict with a `v1.2` alias tag, so only the major alias `v1`
+is created.
+
 ## Tag Types
 
 | Pattern | Example | Description |
@@ -87,6 +172,52 @@ The action responds to these GitHub events:
 - **Commit push**: Creates next RC or patch tag
 - **Tag push**: Validates manual tags and updates aliases
 - **Workflow dispatch**: Manual trigger for testing
+
+## Workflow Triggers for Custom Prefixes
+
+When using custom prefixes, update your workflow triggers to match:
+
+**Default prefix (`release/v`):**
+
+```yaml
+on:
+  push:
+    branches:
+      - 'release/v[0-9]+.[0-9]+'
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  create:
+    branches:
+      - 'release/v[0-9]+.[0-9]+'
+```
+
+**Short prefix (`v`):**
+
+```yaml
+on:
+  push:
+    branches:
+      - 'v[0-9]+.[0-9]+'
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  create:
+    branches:
+      - 'v[0-9]+.[0-9]+'
+```
+
+**Custom prefix (`pkg-v`):**
+
+```yaml
+on:
+  push:
+    branches:
+      - 'pkg-v[0-9]+.[0-9]+'
+    tags:
+      - 'pkg-v[0-9]+.[0-9]+.[0-9]+*'
+  create:
+    branches:
+      - 'pkg-v[0-9]+.[0-9]+'
+```
 
 ## Examples
 
