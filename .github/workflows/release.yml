@@ -1,10 +1,24 @@
 name: Release
 
 on:
+  create:
   push:
+    branches:
+      - 'v[0-9]+.[0-9]+'
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-rc*'
+  workflow_dispatch:
+    inputs:
+      target-branch:
+        description: 'Target release branch (e.g., v1.2)'
+        required: false
+        type: string
+      dry-run:
+        description: 'Simulate without creating tags'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   lint:
@@ -12,19 +26,16 @@ jobs:
 
   test:
     uses: ./.github/workflows/_reusable-test.yml
-
-  build-and-push:
-    needs: [lint, test]
-    uses: ./.github/workflows/_reusable-docker-build.yml
     with:
-      version: ${{ github.ref_name }}
-      push: true
-    permissions:
-      contents: read
-      packages: write
+      coverage-threshold: 90
 
-  release:
-    needs: build-and-push
+  semver:
+    needs: [lint, test]
+    # Only run for branch creation or push to release branches (v prefix)
+    if: >-
+      (github.event_name == 'create' && github.ref_type == 'branch' && startsWith(github.ref_name, 'v')) ||
+      (github.event_name == 'push' && github.ref_type == 'branch' && startsWith(github.ref_name, 'v')) ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,9 +43,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract version info
-        id: version
-        run: .github/scripts/extract-version.sh "${{ github.ref_name }}"
+      - name: Run Semantic Versioning Action
+        uses: ./
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          debug: 'true'
+          dry-run: ${{ inputs.dry-run || 'false' }}
+          target-branch: ${{ inputs.target-branch || '' }}
+          release-prefix: 'v'
+          tag-prefix: 'v'
+
+  release:
+    needs: [lint, test]
+    # Only run for tag pushes
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
