@@ -1,5 +1,8 @@
 # Semantic Versioning Release Action
 
+[![CI](https://github.com/major0/semver-release-action/actions/workflows/ci.yml/badge.svg)](https://github.com/major0/semver-release-action/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/major0/semver-release-action)
+
 A GitHub Action that automates semantic versioning and release management
 following [Semantic Versioning 2.0.0](https://semver.org/).
 
