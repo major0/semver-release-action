@@ -1,0 +1,49 @@
+# Mono-Repo Release Workflow
+# Demonstrates custom prefixes for versioning multiple packages independently
+#
+# This example uses custom prefixes for a package called "api":
+#   - release-prefix: api-v (branches like api-v1.2)
+#   - tag-prefix: api-v (tags like api-v1.2.0)
+#
+# For multiple packages, create separate workflow files with different prefixes:
+#   - api-release.yml: release-prefix: api-v, tag-prefix: api-v
+#   - web-release.yml: release-prefix: web-v, tag-prefix: web-v
+#   - cli-release.yml: release-prefix: cli-v, tag-prefix: cli-v
+#
+# Note: When release-prefix equals tag-prefix, the minor alias (e.g., api-v1.2)
+# is automatically skipped to avoid conflict with the branch name.
+
+name: API Release
+
+on:
+  create:
+  push:
+    branches:
+      - 'api-v[0-9]+.[0-9]+'  # Match api-v1.2, api-v2.0, etc.
+    tags:
+      - 'api-v[0-9]+.[0-9]+.[0-9]+'  # Match api-v1.2.0, api-v1.2.1, etc.
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Semantic Versioning
+        id: semver
+        uses: major0/semver-release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-prefix: 'api-v'  # Branches: api-v1.2, api-v2.0
+          tag-prefix: 'api-v'      # Tags: api-v1.2.0, api-v1.2.0-rc1
+          aliases: 'true'          # Creates api-v1 alias (api-v1.2 skipped)
+
+      - name: Show Results
+        run: |
+          echo "Tag: ${{ steps.semver.outputs.tag }}"
+          echo "Type: ${{ steps.semver.outputs.tag-type }}"
+          echo "Major: ${{ steps.semver.outputs.major }}"
+          echo "Minor: ${{ steps.semver.outputs.minor }}"

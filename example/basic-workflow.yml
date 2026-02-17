@@ -1,5 +1,15 @@
 # Basic Release Workflow
 # Triggers on release branch creation and commits to release branches
+#
+# This example uses default prefixes:
+#   - release-prefix: release/v (branches like release/v1.2)
+#   - tag-prefix: v (tags like v1.2.0)
+#
+# For custom prefixes, see example/mono-repo.yml or configure:
+#   with:
+#     release-prefix: 'v'        # For branches like v1.2
+#     tag-prefix: 'v'            # For tags like v1.2.0
+# Note: Update branch triggers to match your release-prefix pattern
 
 name: Release
 
@@ -25,6 +35,9 @@ jobs:
         uses: major0/semver-release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Custom prefix options (uncomment to use):
+          # release-prefix: 'v'    # Short prefix for branches like v1.2
+          # tag-prefix: 'v'        # Prefix for tags like v1.2.0
 
       - name: Show Results
         run: |
