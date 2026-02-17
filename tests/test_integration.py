@@ -1505,3 +1505,679 @@ class TestMainCoverageGaps:
         assert outputs.tag == ""
         assert outputs.tag_type == "skipped"
         mock_github_api.create_tag.assert_not_called()
+
+
+class TestConfigurablePrefixesIntegration:
+    """Integration tests for configurable release and tag prefixes.
+
+    Validates: Requirements 5.6, 10.2
+    """
+
+    # -------------------------------------------------------------------------
+    # Default Settings (Backward Compatibility)
+    # -------------------------------------------------------------------------
+
+    def test_default_prefix_branch_creation(self, mock_github_api: MagicMock) -> None:
+        """Test branch creation with default prefixes (backward compatibility).
+
+        Validates: Requirements 5.6, 8.1
+        """
+        mock_github_api.list_tags.return_value = []
+
+        context = GitHubContext(
+            event_name="create",
+            ref_name="release/v1.2",
+            ref_type="branch",
+            sha="abc123def456",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="release/v",  # Default
+            tag_prefix="v",  # Default
+        )
+
+        outputs = handle_branch_create(mock_github_api, context, inputs)
+
+        assert outputs.tag == "v1.2.0-rc1"
+        assert outputs.tag_type == "rc"
+        assert outputs.major == "1"
+        assert outputs.minor == "2"
+        mock_github_api.create_tag.assert_called_once_with(
+            "v1.2.0-rc1",
+            "abc123def456",
+            "Release candidate v1.2.0-rc1",
+        )
+
+    def test_default_prefix_commit_push_rc(self, mock_github_api: MagicMock) -> None:
+        """Test commit push creating RC tag with default prefixes.
+
+        Validates: Requirements 5.6, 8.1
+        """
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0-rc1")]
+        mock_github_api.tag_exists.return_value = False
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="release/v1.2",
+            ref_type="branch",
+            sha="commit2sha",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="release/v",
+            tag_prefix="v",
+        )
+
+        outputs = handle_commit_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "v1.2.0-rc2"
+        assert outputs.tag_type == "rc"
+
+    def test_default_prefix_commit_push_patch(self, mock_github_api: MagicMock) -> None:
+        """Test commit push creating patch tag with default prefixes.
+
+        Validates: Requirements 5.6, 8.1
+        """
+        mock_github_api.list_tags.return_value = [
+            make_tag("v1.2.0-rc1"),
+            make_tag("v1.2.0"),
+        ]
+        mock_github_api.tag_exists.return_value = True
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="release/v1.2",
+            ref_type="branch",
+            sha="patch_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="release/v",
+            tag_prefix="v",
+        )
+
+        outputs = handle_commit_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "v1.2.1"
+        assert outputs.tag_type == "patch"
+
+    def test_default_prefix_ga_tag_push_with_aliases(self, mock_github_api: MagicMock) -> None:
+        """Test GA tag push creates both aliases with default prefixes.
+
+        Validates: Requirements 5.6, 8.1
+        """
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
+        mock_github_api.tag_exists.return_value = False
+        mock_github_api.get_branch_commits.return_value = [make_commit("ga_commit")]
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="v1.2.0",
+            ref_type="tag",
+            sha="ga_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            aliases=True,
+            release_prefix="release/v",
+            tag_prefix="v",
+        )
+
+        outputs = handle_tag_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "v1.2.0"
+        assert outputs.tag_type == "ga"
+        # Both v1 and v1.2 aliases should be created
+        create_calls = mock_github_api.create_tag.call_args_list
+        alias_tags_created = [call[0][0] for call in create_calls]
+        assert "v1" in alias_tags_created
+        assert "v1.2" in alias_tags_created
+
+    # -------------------------------------------------------------------------
+    # Short Prefix (`v`)
+    # -------------------------------------------------------------------------
+
+    def test_short_prefix_branch_creation(self, mock_github_api: MagicMock) -> None:
+        """Test branch creation with short prefix 'v'.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = []
+
+        context = GitHubContext(
+            event_name="create",
+            ref_name="v1.2",  # Short prefix branch
+            ref_type="branch",
+            sha="abc123def456",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="v",  # Short prefix
+            tag_prefix="v",
+        )
+
+        outputs = handle_branch_create(mock_github_api, context, inputs)
+
+        assert outputs.tag == "v1.2.0-rc1"
+        assert outputs.tag_type == "rc"
+        assert outputs.major == "1"
+        assert outputs.minor == "2"
+        mock_github_api.create_tag.assert_called_once_with(
+            "v1.2.0-rc1",
+            "abc123def456",
+            "Release candidate v1.2.0-rc1",
+        )
+
+    def test_short_prefix_commit_push_rc(self, mock_github_api: MagicMock) -> None:
+        """Test commit push creating RC tag with short prefix.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0-rc1")]
+        mock_github_api.tag_exists.return_value = False
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="v1.2",
+            ref_type="branch",
+            sha="commit2sha",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="v",
+            tag_prefix="v",
+        )
+
+        outputs = handle_commit_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "v1.2.0-rc2"
+        assert outputs.tag_type == "rc"
+
+    def test_short_prefix_ga_tag_skips_minor_alias(self, mock_github_api: MagicMock) -> None:
+        """Test GA tag push skips minor alias when prefixes match.
+
+        When release_prefix == tag_prefix, the minor alias (v1.2) would conflict
+        with the branch name (v1.2), so it should be skipped.
+
+        Validates: Requirements 2.5, 5.6
+        """
+        mock_github_api.list_tags.return_value = [make_tag("v1.2.0")]
+        mock_github_api.tag_exists.return_value = False
+        mock_github_api.get_branch_commits.return_value = [make_commit("ga_commit")]
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="v1.2.0",
+            ref_type="tag",
+            sha="ga_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            aliases=True,
+            release_prefix="v",  # Same as tag_prefix
+            tag_prefix="v",
+        )
+
+        outputs = handle_tag_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "v1.2.0"
+        assert outputs.tag_type == "ga"
+        # Only v1 alias should be created, v1.2 should be skipped
+        create_calls = mock_github_api.create_tag.call_args_list
+        alias_tags_created = [call[0][0] for call in create_calls]
+        assert "v1" in alias_tags_created
+        assert "v1.2" not in alias_tags_created
+
+    def test_short_prefix_rejects_default_branch(self, mock_github_api: MagicMock) -> None:
+        """Test that short prefix rejects default release/vX.Y branches.
+
+        Validates: Requirements 3.4, 5.6
+        """
+        context = GitHubContext(
+            event_name="create",
+            ref_name="release/v1.2",  # Default format, not short prefix
+            ref_type="branch",
+            sha="abc123",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="v",  # Short prefix configured
+            tag_prefix="v",
+        )
+
+        outputs = handle_branch_create(mock_github_api, context, inputs)
+
+        assert outputs.tag == ""
+        assert outputs.tag_type == "skipped"
+        mock_github_api.create_tag.assert_not_called()
+
+    # -------------------------------------------------------------------------
+    # Custom Prefix (`pkg-`)
+    # -------------------------------------------------------------------------
+
+    def test_custom_prefix_pkg_branch_creation(self, mock_github_api: MagicMock) -> None:
+        """Test branch creation with custom prefix 'pkg-'.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = []
+
+        context = GitHubContext(
+            event_name="create",
+            ref_name="pkg-1.2",  # Custom prefix branch
+            ref_type="branch",
+            sha="abc123def456",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="pkg-",  # Custom prefix
+            tag_prefix="pkg-",
+        )
+
+        outputs = handle_branch_create(mock_github_api, context, inputs)
+
+        assert outputs.tag == "pkg-1.2.0-rc1"
+        assert outputs.tag_type == "rc"
+        assert outputs.major == "1"
+        assert outputs.minor == "2"
+        mock_github_api.create_tag.assert_called_once_with(
+            "pkg-1.2.0-rc1",
+            "abc123def456",
+            "Release candidate pkg-1.2.0-rc1",
+        )
+
+    def test_custom_prefix_pkg_commit_push_patch(self, mock_github_api: MagicMock) -> None:
+        """Test commit push creating patch tag with custom prefix 'pkg-'.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = [
+            make_tag("pkg-1.2.0-rc1"),
+            make_tag("pkg-1.2.0"),
+        ]
+        mock_github_api.tag_exists.return_value = True
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="pkg-1.2",
+            ref_type="branch",
+            sha="patch_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="pkg-",
+            tag_prefix="pkg-",
+        )
+
+        outputs = handle_commit_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "pkg-1.2.1"
+        assert outputs.tag_type == "patch"
+
+    def test_custom_prefix_pkg_ga_tag_skips_minor_alias(self, mock_github_api: MagicMock) -> None:
+        """Test GA tag push skips minor alias with custom prefix when prefixes match.
+
+        Validates: Requirements 2.5, 5.6
+        """
+        mock_github_api.list_tags.return_value = [make_tag("pkg-1.2.0")]
+        mock_github_api.tag_exists.return_value = False
+        mock_github_api.get_branch_commits.return_value = [make_commit("ga_commit")]
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="pkg-1.2.0",
+            ref_type="tag",
+            sha="ga_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            aliases=True,
+            release_prefix="pkg-",  # Same as tag_prefix
+            tag_prefix="pkg-",
+        )
+
+        outputs = handle_tag_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "pkg-1.2.0"
+        assert outputs.tag_type == "ga"
+        # Only pkg-1 alias should be created, pkg-1.2 should be skipped
+        create_calls = mock_github_api.create_tag.call_args_list
+        alias_tags_created = [call[0][0] for call in create_calls]
+        assert "pkg-1" in alias_tags_created
+        assert "pkg-1.2" not in alias_tags_created
+
+    # -------------------------------------------------------------------------
+    # Custom Prefix (`api/`)
+    # -------------------------------------------------------------------------
+
+    def test_custom_prefix_api_branch_creation(self, mock_github_api: MagicMock) -> None:
+        """Test branch creation with custom prefix 'api/'.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = []
+
+        context = GitHubContext(
+            event_name="create",
+            ref_name="api/1.2",  # Custom prefix branch
+            ref_type="branch",
+            sha="abc123def456",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="api/",  # Custom prefix
+            tag_prefix="api-",  # Different tag prefix
+        )
+
+        outputs = handle_branch_create(mock_github_api, context, inputs)
+
+        assert outputs.tag == "api-1.2.0-rc1"
+        assert outputs.tag_type == "rc"
+        assert outputs.major == "1"
+        assert outputs.minor == "2"
+        mock_github_api.create_tag.assert_called_once_with(
+            "api-1.2.0-rc1",
+            "abc123def456",
+            "Release candidate api-1.2.0-rc1",
+        )
+
+    def test_custom_prefix_api_commit_push_rc(self, mock_github_api: MagicMock) -> None:
+        """Test commit push creating RC tag with custom prefix 'api/'.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = [make_tag("api-1.2.0-rc1")]
+        mock_github_api.tag_exists.return_value = False
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="api/1.2",
+            ref_type="branch",
+            sha="commit2sha",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="api/",
+            tag_prefix="api-",
+        )
+
+        outputs = handle_commit_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "api-1.2.0-rc2"
+        assert outputs.tag_type == "rc"
+
+    def test_custom_prefix_api_ga_tag_creates_both_aliases(self, mock_github_api: MagicMock) -> None:
+        """Test GA tag push creates both aliases when prefixes differ.
+
+        When release_prefix != tag_prefix, both aliases should be created.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = [make_tag("api-1.2.0")]
+        mock_github_api.tag_exists.return_value = False
+        mock_github_api.get_branch_commits.return_value = [make_commit("ga_commit")]
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="api-1.2.0",
+            ref_type="tag",
+            sha="ga_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            aliases=True,
+            release_prefix="api/",  # Different from tag_prefix
+            tag_prefix="api-",
+        )
+
+        outputs = handle_tag_push(mock_github_api, context, inputs)
+
+        assert outputs.tag == "api-1.2.0"
+        assert outputs.tag_type == "ga"
+        # Both api-1 and api-1.2 aliases should be created
+        create_calls = mock_github_api.create_tag.call_args_list
+        alias_tags_created = [call[0][0] for call in create_calls]
+        assert "api-1" in alias_tags_created
+        assert "api-1.2" in alias_tags_created
+
+    # -------------------------------------------------------------------------
+    # Mono-repo Use Case
+    # -------------------------------------------------------------------------
+
+    def test_monorepo_different_packages(self, mock_github_api: MagicMock) -> None:
+        """Test mono-repo scenario with different package prefixes.
+
+        Validates: Requirements 5.6
+        """
+        # Package A: pkg-a-v prefix
+        mock_github_api.list_tags.return_value = []
+
+        context_a = GitHubContext(
+            event_name="create",
+            ref_name="pkg-a-v1.0",
+            ref_type="branch",
+            sha="commit_a",
+            repository="owner/repo",
+        )
+        inputs_a = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="pkg-a-v",
+            tag_prefix="pkg-a-v",
+        )
+
+        outputs_a = handle_branch_create(mock_github_api, context_a, inputs_a)
+        assert outputs_a.tag == "pkg-a-v1.0.0-rc1"
+
+        # Package B: pkg-b-v prefix
+        mock_github_api.create_tag.reset_mock()
+
+        context_b = GitHubContext(
+            event_name="create",
+            ref_name="pkg-b-v2.0",
+            ref_type="branch",
+            sha="commit_b",
+            repository="owner/repo",
+        )
+        inputs_b = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+            release_prefix="pkg-b-v",
+            tag_prefix="pkg-b-v",
+        )
+
+        outputs_b = handle_branch_create(mock_github_api, context_b, inputs_b)
+        assert outputs_b.tag == "pkg-b-v2.0.0-rc1"
+
+    # -------------------------------------------------------------------------
+    # Workflow Dispatch with Custom Prefixes
+    # -------------------------------------------------------------------------
+
+    def test_workflow_dispatch_with_custom_prefix(self, mock_github_api: MagicMock) -> None:
+        """Test workflow_dispatch with custom prefix.
+
+        Validates: Requirements 5.6
+        """
+        mock_github_api.list_tags.return_value = [make_tag("pkg-1.2.0-rc1")]
+        mock_github_api.tag_exists.return_value = False
+
+        context = GitHubContext(
+            event_name="workflow_dispatch",
+            ref_name="main",
+            ref_type="branch",
+            sha="dispatch_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="pkg-1.2",  # Custom prefix target branch
+            release_prefix="pkg-",
+            tag_prefix="pkg-",
+        )
+
+        outputs = handle_workflow_dispatch(mock_github_api, context, inputs)
+
+        assert outputs.tag == "pkg-1.2.0-rc2"
+        assert outputs.tag_type == "rc"
+
+    def test_workflow_dispatch_invalid_target_branch_custom_prefix(self, mock_github_api: MagicMock) -> None:
+        """Test workflow_dispatch fails with invalid target branch for custom prefix.
+
+        Validates: Requirements 5.6
+        """
+        context = GitHubContext(
+            event_name="workflow_dispatch",
+            ref_name="main",
+            ref_type="branch",
+            sha="dispatch_commit",
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="release/v1.2",  # Wrong prefix for configured prefix
+            release_prefix="pkg-",
+            tag_prefix="pkg-",
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            handle_workflow_dispatch(mock_github_api, context, inputs)
+
+        assert exc_info.value.code == 1
+
+    # -------------------------------------------------------------------------
+    # Main Entry Point with Custom Prefixes
+    # -------------------------------------------------------------------------
+
+    def test_main_with_custom_prefix_env_vars(
+        self, mock_github_api: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test main() reads custom prefix from environment variables.
+
+        Validates: Requirements 5.6
+        """
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "create")
+        monkeypatch.setenv("GITHUB_REF_NAME", "pkg-1.0")
+        monkeypatch.setenv("GITHUB_REF_TYPE", "branch")
+        monkeypatch.setenv("GITHUB_SHA", "abc123def456")
+        monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+        monkeypatch.setenv("INPUT_TOKEN", "test-token")
+        monkeypatch.setenv("INPUT_DEBUG", "false")
+        monkeypatch.setenv("INPUT_DRY_RUN", "false")
+        monkeypatch.setenv("INPUT_RELEASE_PREFIX", "pkg-")
+        monkeypatch.setenv("INPUT_TAG_PREFIX", "pkg-")
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            output_file = f.name
+        monkeypatch.setenv("GITHUB_OUTPUT", output_file)
+
+        mock_github_api.list_tags.return_value = []
+
+        with patch("src.main.GitHubAPI", return_value=mock_github_api):
+            from src.main import main
+
+            main()
+
+        with open(output_file) as f:
+            content = f.read()
+        assert "tag=pkg-1.0.0-rc1" in content
+        assert "tag-type=rc" in content
+
+        os.unlink(output_file)
+
+    def test_main_with_short_prefix_env_vars(self, mock_github_api: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test main() reads short prefix from environment variables.
+
+        Validates: Requirements 5.6
+        """
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "create")
+        monkeypatch.setenv("GITHUB_REF_NAME", "v2.0")
+        monkeypatch.setenv("GITHUB_REF_TYPE", "branch")
+        monkeypatch.setenv("GITHUB_SHA", "abc123def456")
+        monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+        monkeypatch.setenv("INPUT_TOKEN", "test-token")
+        monkeypatch.setenv("INPUT_DEBUG", "false")
+        monkeypatch.setenv("INPUT_DRY_RUN", "false")
+        monkeypatch.setenv("INPUT_RELEASE_PREFIX", "v")
+        monkeypatch.setenv("INPUT_TAG_PREFIX", "v")
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            output_file = f.name
+        monkeypatch.setenv("GITHUB_OUTPUT", output_file)
+
+        mock_github_api.list_tags.return_value = []
+
+        with patch("src.main.GitHubAPI", return_value=mock_github_api):
+            from src.main import main
+
+            main()
+
+        with open(output_file) as f:
+            content = f.read()
+        assert "tag=v2.0.0-rc1" in content
+        assert "tag-type=rc" in content
+
+        os.unlink(output_file)
