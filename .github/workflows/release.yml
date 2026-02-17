@@ -27,7 +27,7 @@ jobs:
   test:
     uses: ./.github/workflows/_reusable-test.yml
     with:
-      coverage-threshold: 90
+      coverage-threshold: 100
 
   semver:
     needs: [lint, test]
