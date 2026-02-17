@@ -287,6 +287,24 @@ def handle_branch_create(
     return outputs
 
 
+def _commit_has_version_tag(api: GitHubAPI, commit_sha: str, tag_prefix: str) -> str | None:
+    """Check if a commit already has a version tag.
+
+    Args:
+        api: GitHubAPI instance.
+        commit_sha: SHA of the commit to check.
+        tag_prefix: The configured tag prefix.
+
+    Returns:
+        The existing tag name if found, None otherwise.
+    """
+    tags = api.list_tags()
+    for tag in tags:
+        if tag.commit.sha == commit_sha and tag.name.startswith(tag_prefix):
+            return tag.name
+    return None
+
+
 def handle_commit_push(
     api: GitHubAPI,
     context: GitHubContext,
@@ -323,6 +341,18 @@ def handle_commit_push(
 
     outputs.major = str(version.major)
     outputs.minor = str(version.minor)
+
+    # Check if commit already has a version tag
+    existing_tag = _commit_has_version_tag(api, context.sha, inputs.tag_prefix)
+    if existing_tag:
+        logger.info(
+            "Commit %s already has tag '%s', skipping tag creation",
+            context.sha[:7],
+            existing_tag,
+        )
+        outputs.tag = existing_tag
+        outputs.tag_type = "skipped"
+        return outputs
 
     if ga_exists(api, version.major, version.minor, inputs.tag_prefix):
         # GA exists, create next patch tag

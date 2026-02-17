@@ -7,14 +7,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-def make_tag(name: str) -> MagicMock:
+def make_tag(name: str, commit_sha: str = "default_sha") -> MagicMock:
     """Create a mock tag object with the given name.
 
     This is a shared helper for creating mock GitHub tag objects
     used across multiple test modules.
+
+    Args:
+        name: The tag name (e.g., 'v1.2.0').
+        commit_sha: The SHA of the commit the tag points to.
     """
     tag = MagicMock()
     tag.name = name
+    tag.commit = MagicMock()
+    tag.commit.sha = commit_sha
     return tag
 
 

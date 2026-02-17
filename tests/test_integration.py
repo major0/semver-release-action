@@ -1506,8 +1506,62 @@ class TestMainCoverageGaps:
         assert outputs.tag_type == "skipped"
         mock_github_api.create_tag.assert_not_called()
 
+    def test_handle_commit_push_skips_already_tagged_commit(self, mock_github_api: MagicMock) -> None:
+        """Test handle_commit_push skips tag creation when commit already has a tag.
 
-class TestConfigurablePrefixesIntegration:
+        This covers the _commit_has_version_tag check that prevents duplicate tags.
+        """
+        # Commit already has a tag
+        existing_tag = make_tag("v1.2.0", commit_sha="already_tagged_commit")
+        mock_github_api.list_tags.return_value = [existing_tag]
+        mock_github_api.tag_exists.return_value = True  # GA exists
+
+        context = GitHubContext(
+            event_name="push",
+            ref_name="release/v1.2",
+            ref_type="branch",
+            sha="already_tagged_commit",  # Same SHA as existing tag
+            repository="owner/repo",
+        )
+        inputs = ActionInputs(
+            token="test-token",
+            debug=False,
+            dry_run=False,
+            target_branch="",
+        )
+
+        outputs = handle_commit_push(mock_github_api, context, inputs)
+
+        # Should skip tag creation and return existing tag info
+        assert outputs.tag == "v1.2.0"
+        assert outputs.tag_type == "skipped"
+        mock_github_api.create_tag.assert_not_called()
+
+    def test_commit_has_version_tag_returns_none_when_no_match(self, mock_github_api: MagicMock) -> None:
+        """Test _commit_has_version_tag returns None when no matching tag exists."""
+        from src.main import _commit_has_version_tag
+
+        mock_github_api.list_tags.return_value = [
+            make_tag("v1.0.0", commit_sha="other_commit"),
+            make_tag("v1.1.0", commit_sha="another_commit"),
+        ]
+
+        result = _commit_has_version_tag(mock_github_api, "target_commit", "v")
+
+        assert result is None
+
+    def test_commit_has_version_tag_ignores_non_matching_prefix(self, mock_github_api: MagicMock) -> None:
+        """Test _commit_has_version_tag ignores tags with different prefix."""
+        from src.main import _commit_has_version_tag
+
+        mock_github_api.list_tags.return_value = [
+            make_tag("pkg-v1.0.0", commit_sha="target_commit"),  # Different prefix
+        ]
+
+        result = _commit_has_version_tag(mock_github_api, "target_commit", "v")
+
+        assert result is None
+
     """Integration tests for configurable release and tag prefixes.
 
     Validates: Requirements 5.6, 10.2
