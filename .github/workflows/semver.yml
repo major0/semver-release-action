@@ -4,11 +4,11 @@ on:
   create:
   push:
     branches:
-      - 'release/**'
+      - 'v[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       target-branch:
-        description: 'Target release branch (e.g., release/v1.2)'
+        description: 'Target release branch (e.g., v1.2)'
         required: false
         type: string
       dry-run:
@@ -19,10 +19,10 @@ on:
 
 jobs:
   semver:
-    # Only run for branch creation or push to release branches
+    # Only run for branch creation or push to release branches (v prefix)
     if: >-
-      (github.event_name == 'create' && github.ref_type == 'branch' && startsWith(github.ref_name, 'release/')) ||
-      (github.event_name == 'push' && startsWith(github.ref_name, 'release/')) ||
+      (github.event_name == 'create' && github.ref_type == 'branch' && startsWith(github.ref_name, 'v')) ||
+      (github.event_name == 'push' && startsWith(github.ref_name, 'v')) ||
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -38,3 +38,5 @@ jobs:
           debug: 'true'
           dry-run: ${{ inputs.dry-run || 'false' }}
           target-branch: ${{ inputs.target-branch || '' }}
+          release-prefix: 'v'
+          tag-prefix: 'v'
