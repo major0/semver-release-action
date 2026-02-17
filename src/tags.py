@@ -19,20 +19,47 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Pattern for RC tags: vX.Y.0-rcN
+# Pattern for RC tags: vX.Y.0-rcN (default prefix)
 RC_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.0-rc(\d+)$")
 
-# Pattern for GA/patch tags: vX.Y.Z (where Z >= 0)
+# Pattern for GA/patch tags: vX.Y.Z (where Z >= 0, default prefix)
 PATCH_TAG_PATTERN = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
 
-def find_latest_rc(api: GitHubAPI, major: int, minor: int) -> int | None:
-    """Find the highest RC number for vX.Y.0-rcN tags.
+def _create_rc_pattern(tag_prefix: str) -> re.Pattern[str]:
+    """Create regex pattern for RC tags with given prefix.
+
+    Args:
+        tag_prefix: The prefix for tags (e.g., 'v', 'pkg-v').
+
+    Returns:
+        Compiled regex pattern matching {prefix}X.Y.0-rcN.
+    """
+    escaped_prefix = re.escape(tag_prefix)
+    return re.compile(f"^{escaped_prefix}(\\d+)\\.(\\d+)\\.0-rc(\\d+)$")
+
+
+def _create_patch_pattern(tag_prefix: str) -> re.Pattern[str]:
+    """Create regex pattern for GA/patch tags with given prefix.
+
+    Args:
+        tag_prefix: The prefix for tags (e.g., 'v', 'pkg-v').
+
+    Returns:
+        Compiled regex pattern matching {prefix}X.Y.Z.
+    """
+    escaped_prefix = re.escape(tag_prefix)
+    return re.compile(f"^{escaped_prefix}(\\d+)\\.(\\d+)\\.(\\d+)$")
+
+
+def find_latest_rc(api: GitHubAPI, major: int, minor: int, tag_prefix: str = "v") -> int | None:
+    """Find the highest RC number for {prefix}X.Y.0-rcN tags.
 
     Args:
         api: GitHubAPI instance for fetching tags.
         major: Major version number.
         minor: Minor version number.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         The highest RC number found, or None if no RC tags exist.
@@ -47,9 +74,10 @@ def find_latest_rc(api: GitHubAPI, major: int, minor: int) -> int | None:
     """
     tags = api.list_tags()
     highest_rc = None
+    pattern = _create_rc_pattern(tag_prefix)
 
     for tag in tags:
-        match = RC_TAG_PATTERN.match(tag.name)
+        match = pattern.match(tag.name)
         if match:
             tag_major = int(match.group(1))
             tag_minor = int(match.group(2))
@@ -61,13 +89,14 @@ def find_latest_rc(api: GitHubAPI, major: int, minor: int) -> int | None:
     return highest_rc
 
 
-def find_latest_patch(api: GitHubAPI, major: int, minor: int) -> int | None:
-    """Find the highest patch number for vX.Y.Z tags.
+def find_latest_patch(api: GitHubAPI, major: int, minor: int, tag_prefix: str = "v") -> int | None:
+    """Find the highest patch number for {prefix}X.Y.Z tags.
 
     Args:
         api: GitHubAPI instance for fetching tags.
         major: Major version number.
         minor: Minor version number.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         The highest patch number found, or None if no patch tags exist.
@@ -82,9 +111,10 @@ def find_latest_patch(api: GitHubAPI, major: int, minor: int) -> int | None:
     """
     tags = api.list_tags()
     highest_patch = None
+    pattern = _create_patch_pattern(tag_prefix)
 
     for tag in tags:
-        match = PATCH_TAG_PATTERN.match(tag.name)
+        match = pattern.match(tag.name)
         if match:
             tag_major = int(match.group(1))
             tag_minor = int(match.group(2))
@@ -96,13 +126,14 @@ def find_latest_patch(api: GitHubAPI, major: int, minor: int) -> int | None:
     return highest_patch
 
 
-def ga_exists(api: GitHubAPI, major: int, minor: int) -> bool:
-    """Check if a GA release (vX.Y.0) exists for the given version.
+def ga_exists(api: GitHubAPI, major: int, minor: int, tag_prefix: str = "v") -> bool:
+    """Check if a GA release ({prefix}X.Y.0) exists for the given version.
 
     Args:
         api: GitHubAPI instance for checking tags.
         major: Major version number.
         minor: Minor version number.
+        tag_prefix: The tag prefix to use (default: 'v').
 
     Returns:
         True if the GA release tag exists, False otherwise.
@@ -114,7 +145,7 @@ def ga_exists(api: GitHubAPI, major: int, minor: int) -> bool:
     References:
         - Requirements 3.1, 4.1
     """
-    ga_tag = f"v{major}.{minor}.0"
+    ga_tag = f"{tag_prefix}{major}.{minor}.0"
     return api.tag_exists(ga_tag)
 
 
@@ -193,13 +224,14 @@ def increment_patch(current_patch: int | None) -> int:
     return current_patch + 1
 
 
-def get_next_rc_tag(api: GitHubAPI, major: int, minor: int) -> str:
+def get_next_rc_tag(api: GitHubAPI, major: int, minor: int, tag_prefix: str = "v") -> str:
     """Get the next RC tag name for a version.
 
     Args:
         api: GitHubAPI instance for fetching tags.
         major: Major version number.
         minor: Minor version number.
+        tag_prefix: The tag prefix to use (default: 'v').
 
     Returns:
         The next RC tag name (e.g., 'v1.2.0-rc1' or 'v1.2.0-rc4').
@@ -213,18 +245,19 @@ def get_next_rc_tag(api: GitHubAPI, major: int, minor: int) -> str:
     References:
         - Requirements 2.1, 3.1, 3.2, 3.3
     """
-    latest_rc = find_latest_rc(api, major, minor)
+    latest_rc = find_latest_rc(api, major, minor, tag_prefix)
     next_rc = increment_rc(latest_rc)
-    return f"v{major}.{minor}.0-rc{next_rc}"
+    return f"{tag_prefix}{major}.{minor}.0-rc{next_rc}"
 
 
-def get_next_patch_tag(api: GitHubAPI, major: int, minor: int) -> str:
+def get_next_patch_tag(api: GitHubAPI, major: int, minor: int, tag_prefix: str = "v") -> str:
     """Get the next patch tag name for a version.
 
     Args:
         api: GitHubAPI instance for fetching tags.
         major: Major version number.
         minor: Minor version number.
+        tag_prefix: The tag prefix to use (default: 'v').
 
     Returns:
         The next patch tag name (e.g., 'v1.2.1' or 'v1.2.5').
@@ -238,16 +271,17 @@ def get_next_patch_tag(api: GitHubAPI, major: int, minor: int) -> str:
     References:
         - Requirements 4.1, 4.2, 4.3
     """
-    latest_patch = find_latest_patch(api, major, minor)
+    latest_patch = find_latest_patch(api, major, minor, tag_prefix)
     next_patch = increment_patch(latest_patch)
-    return f"v{major}.{minor}.{next_patch}"
+    return f"{tag_prefix}{major}.{minor}.{next_patch}"
 
 
-def is_rc_tag(tag_name: str) -> bool:
+def is_rc_tag(tag_name: str, tag_prefix: str = "v") -> bool:
     """Check if a tag is an RC tag.
 
     Args:
         tag_name: The tag name to check.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         True if the tag matches the RC pattern, False otherwise.
@@ -258,14 +292,16 @@ def is_rc_tag(tag_name: str) -> bool:
         >>> is_rc_tag("v1.2.0")
         False
     """
-    return RC_TAG_PATTERN.match(tag_name) is not None
+    pattern = _create_rc_pattern(tag_prefix)
+    return pattern.match(tag_name) is not None
 
 
-def is_ga_tag(tag_name: str) -> bool:
-    """Check if a tag is a GA tag (vX.Y.0).
+def is_ga_tag(tag_name: str, tag_prefix: str = "v") -> bool:
+    """Check if a tag is a GA tag ({prefix}X.Y.0).
 
     Args:
         tag_name: The tag name to check.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         True if the tag is a GA release (patch == 0), False otherwise.
@@ -278,18 +314,20 @@ def is_ga_tag(tag_name: str) -> bool:
         >>> is_ga_tag("v1.2.0-rc1")
         False
     """
-    match = PATCH_TAG_PATTERN.match(tag_name)
+    pattern = _create_patch_pattern(tag_prefix)
+    match = pattern.match(tag_name)
     if match:
         patch = int(match.group(3))
         return patch == 0
     return False
 
 
-def is_patch_tag(tag_name: str) -> bool:
-    """Check if a tag is a patch tag (vX.Y.Z where Z > 0).
+def is_patch_tag(tag_name: str, tag_prefix: str = "v") -> bool:
+    """Check if a tag is a patch tag ({prefix}X.Y.Z where Z > 0).
 
     Args:
         tag_name: The tag name to check.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         True if the tag is a patch release (patch > 0), False otherwise.
@@ -302,7 +340,8 @@ def is_patch_tag(tag_name: str) -> bool:
         >>> is_patch_tag("v1.2.0-rc1")
         False
     """
-    match = PATCH_TAG_PATTERN.match(tag_name)
+    pattern = _create_patch_pattern(tag_prefix)
+    match = pattern.match(tag_name)
     if match:
         patch = int(match.group(3))
         return patch > 0

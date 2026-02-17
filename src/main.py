@@ -20,7 +20,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from src.aliases import update_alias_tags
-from src.branch import extract_version, validate_branch
+from src.branch import (
+    parse_branch,
+    should_skip_minor_alias,
+    validate_prefix,
+)
 from src.github_api import GitHubAPI
 from src.tags import (
     create_tag,
@@ -46,6 +50,8 @@ class ActionInputs:
     dry_run: bool
     target_branch: str
     aliases: bool = False
+    release_prefix: str = "release/v"
+    tag_prefix: str = "v"
 
 
 @dataclass
@@ -138,9 +144,36 @@ Examples:
         default=os.environ.get("INPUT_ALIASES", "false").lower() == "true",
         help="Update major (vX) and minor (vX.Y) alias tags",
     )
+    parser.add_argument(
+        "--release-prefix",
+        default=os.environ.get("INPUT_RELEASE_PREFIX", "release/v"),
+        help="Prefix for release branch names (default: release/v)",
+    )
+    parser.add_argument(
+        "--tag-prefix",
+        default=os.environ.get("INPUT_TAG_PREFIX", "v"),
+        help="Prefix for version tags and aliases (default: v)",
+    )
 
     # Use empty list for GitHub Actions mode (env vars only), or provided args for CLI
     parsed = parser.parse_args(args if args is not None else [])
+
+    # Validate prefixes
+    if not validate_prefix(parsed.release_prefix):
+        logger.error(
+            "Invalid release-prefix '%s': must be non-empty and not contain "
+            "invalid git ref characters (.. ~ ^ : \\ space tab newline * ? [)",
+            parsed.release_prefix,
+        )
+        sys.exit(1)
+
+    if not validate_prefix(parsed.tag_prefix):
+        logger.error(
+            "Invalid tag-prefix '%s': must be non-empty and not contain "
+            "invalid git ref characters (.. ~ ^ : \\ space tab newline * ? [)",
+            parsed.tag_prefix,
+        )
+        sys.exit(1)
 
     return ActionInputs(
         token=parsed.token,
@@ -148,6 +181,8 @@ Examples:
         dry_run=parsed.dry_run,
         target_branch=parsed.target_branch,
         aliases=parsed.aliases,
+        release_prefix=parsed.release_prefix,
+        tag_prefix=parsed.tag_prefix,
     )
 
 
@@ -212,7 +247,7 @@ def handle_branch_create(
 ) -> ActionOutputs:
     """Handle branch creation event.
 
-    Creates the initial vX.Y.0-rc1 tag when a release branch is created.
+    Creates the initial {tag_prefix}X.Y.0-rc1 tag when a release branch is created.
 
     Args:
         api: GitHubAPI instance.
@@ -228,15 +263,16 @@ def handle_branch_create(
     outputs = ActionOutputs()
     branch_name = context.ref_name
 
-    if not validate_branch(branch_name):
-        logger.info("Branch '%s' is not a release branch, skipping", branch_name)
-        return outputs
-
-    version = extract_version(branch_name)
+    version = parse_branch(branch_name, inputs.release_prefix)
     if version is None:
+        logger.info(
+            "Branch '%s' does not match %sX.Y pattern, skipping",
+            branch_name,
+            inputs.release_prefix,
+        )
         return outputs
 
-    tag_name = f"v{version.major}.{version.minor}.0-rc1"
+    tag_name = f"{inputs.tag_prefix}{version.major}.{version.minor}.0-rc1"
     outputs.tag = tag_name
     outputs.tag_type = "rc"
     outputs.major = str(version.major)
@@ -276,20 +312,21 @@ def handle_commit_push(
     outputs = ActionOutputs()
     branch = branch_name or context.ref_name
 
-    if not validate_branch(branch):
-        logger.info("Branch '%s' is not a release branch, skipping", branch)
-        return outputs
-
-    version = extract_version(branch)
+    version = parse_branch(branch, inputs.release_prefix)
     if version is None:
+        logger.info(
+            "Branch '%s' does not match %sX.Y pattern, skipping",
+            branch,
+            inputs.release_prefix,
+        )
         return outputs
 
     outputs.major = str(version.major)
     outputs.minor = str(version.minor)
 
-    if ga_exists(api, version.major, version.minor):
+    if ga_exists(api, version.major, version.minor, inputs.tag_prefix):
         # GA exists, create next patch tag
-        tag_name = get_next_patch_tag(api, version.major, version.minor)
+        tag_name = get_next_patch_tag(api, version.major, version.minor, inputs.tag_prefix)
         outputs.tag = tag_name
         outputs.tag_type = "patch"
 
@@ -300,10 +337,10 @@ def handle_commit_push(
             logger.info("Created patch tag '%s'", tag_name)
             # Update alias tags for non-RC releases if enabled
             if inputs.aliases:
-                update_alias_tags(api, tag_name, context.sha)
+                _update_aliases_with_skip_logic(api, tag_name, context.sha, inputs)
     else:
         # No GA, create next RC tag
-        tag_name = get_next_rc_tag(api, version.major, version.minor)
+        tag_name = get_next_rc_tag(api, version.major, version.minor, inputs.tag_prefix)
         outputs.tag = tag_name
         outputs.tag_type = "rc"
 
@@ -341,9 +378,13 @@ def handle_tag_push(
     tag_name = context.ref_name
 
     # Parse the tag to extract version info
-    version = _parse_tag_version(tag_name)
+    version = _parse_tag_version(tag_name, inputs.tag_prefix)
     if version is None:
-        logger.warning("Tag '%s' is not a valid SemVer tag, skipping", tag_name)
+        logger.warning(
+            "Tag '%s' is not a valid SemVer tag with prefix '%s', skipping",
+            tag_name,
+            inputs.tag_prefix,
+        )
         return outputs
 
     major, minor = version
@@ -352,7 +393,7 @@ def handle_tag_push(
     outputs.tag = tag_name
 
     # Determine the corresponding release branch
-    release_branch = f"release/v{major}.{minor}"
+    release_branch = f"{inputs.release_prefix}{major}.{minor}"
 
     # Validate tag points to a commit on the release branch
     if not _validate_tag_on_branch(api, context.sha, release_branch):
@@ -364,19 +405,19 @@ def handle_tag_push(
         sys.exit(1)
 
     # Determine tag type
-    if is_rc_tag(tag_name):
+    if is_rc_tag(tag_name, inputs.tag_prefix):
         outputs.tag_type = "rc"
         logger.info("Validated RC tag '%s'", tag_name)
-    elif is_ga_tag(tag_name):
+    elif is_ga_tag(tag_name, inputs.tag_prefix):
         outputs.tag_type = "ga"
         logger.info("Validated GA tag '%s'", tag_name)
         if not inputs.dry_run and inputs.aliases:
-            update_alias_tags(api, tag_name, context.sha)
+            _update_aliases_with_skip_logic(api, tag_name, context.sha, inputs)
     else:
         outputs.tag_type = "patch"
         logger.info("Validated patch tag '%s'", tag_name)
         if not inputs.dry_run and inputs.aliases:
-            update_alias_tags(api, tag_name, context.sha)
+            _update_aliases_with_skip_logic(api, tag_name, context.sha, inputs)
 
     return outputs
 
@@ -402,8 +443,13 @@ def handle_workflow_dispatch(
     # Get target branch from input or fall back to GITHUB_REF_NAME
     target_branch = inputs.target_branch or context.ref_name
 
-    if not validate_branch(target_branch):
-        logger.error("target-branch '%s' must match release/vX.Y pattern", target_branch)
+    version = parse_branch(target_branch, inputs.release_prefix)
+    if version is None:
+        logger.error(
+            "target-branch '%s' must match %sX.Y pattern",
+            target_branch,
+            inputs.release_prefix,
+        )
         sys.exit(1)
 
     logger.info("Processing workflow_dispatch for branch '%s'", target_branch)
@@ -412,24 +458,29 @@ def handle_workflow_dispatch(
     return handle_commit_push(api, context, inputs, branch_name=target_branch)
 
 
-def _parse_tag_version(tag_name: str) -> tuple[int, int] | None:
+def _parse_tag_version(tag_name: str, tag_prefix: str = "v") -> tuple[int, int] | None:
     """Parse major and minor version from a tag name.
 
     Args:
         tag_name: Tag name (e.g., 'v1.2.0', 'v1.2.0-rc1', 'v1.2.3').
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         Tuple of (major, minor) or None if not a valid version tag.
     """
     import re
 
-    # Match RC tags: vX.Y.0-rcN
-    rc_match = re.match(r"^v(\d+)\.(\d+)\.0-rc\d+$", tag_name)
+    escaped_prefix = re.escape(tag_prefix)
+
+    # Match RC tags: {prefix}X.Y.0-rcN
+    rc_pattern = f"^{escaped_prefix}(\\d+)\\.(\\d+)\\.0-rc\\d+$"
+    rc_match = re.match(rc_pattern, tag_name)
     if rc_match:
         return int(rc_match.group(1)), int(rc_match.group(2))
 
-    # Match GA/patch tags: vX.Y.Z
-    patch_match = re.match(r"^v(\d+)\.(\d+)\.\d+$", tag_name)
+    # Match GA/patch tags: {prefix}X.Y.Z
+    patch_pattern = f"^{escaped_prefix}(\\d+)\\.(\\d+)\\.\\d+$"
+    patch_match = re.match(patch_pattern, tag_name)
     if patch_match:
         return int(patch_match.group(1)), int(patch_match.group(2))
 
@@ -454,6 +505,36 @@ def _validate_tag_on_branch(api: GitHubAPI, commit_sha: str, branch_name: str) -
     except Exception as e:
         logger.error("Failed to get commits from branch '%s': %s", branch_name, e)
         return False
+
+
+def _update_aliases_with_skip_logic(
+    api: GitHubAPI,
+    tag_name: str,
+    commit_sha: str,
+    inputs: ActionInputs,
+) -> dict[str, bool]:
+    """Update alias tags with skip logic for minor alias when prefixes match.
+
+    Args:
+        api: GitHubAPI instance for tag operations.
+        tag_name: The release tag name (e.g., 'v1.2.3').
+        commit_sha: SHA of the commit the release tag points to.
+        inputs: Action inputs containing prefix configuration.
+
+    Returns:
+        Dict with 'major' and 'minor' keys indicating if each alias was updated.
+
+    References:
+        - Requirements 2.5
+    """
+    skip_minor = should_skip_minor_alias(inputs.release_prefix, inputs.tag_prefix)
+    return update_alias_tags(
+        api,
+        tag_name,
+        commit_sha,
+        tag_prefix=inputs.tag_prefix,
+        skip_minor_alias=skip_minor,
+    )
 
 
 def main() -> None:

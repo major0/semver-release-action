@@ -1248,10 +1248,10 @@ class TestMainCoverageGaps:
     def test_handle_branch_create_version_extraction_fails(self, mock_github_api: MagicMock) -> None:
         """Test handle_branch_create when version extraction returns None.
 
-        This covers line 170 - the early return when extract_version returns None.
-        Note: This is a defensive check; validate_branch should catch invalid branches first.
+        This covers the early return when parse_branch returns None.
+        Note: This is a defensive check; parse_branch handles both validation and extraction.
         """
-        # We need to mock extract_version to return None for a "valid" branch
+        # We need to mock parse_branch to return None for a "valid" branch
         context = GitHubContext(
             event_name="create",
             ref_name="release/v1.2",
@@ -1266,7 +1266,7 @@ class TestMainCoverageGaps:
             target_branch="",
         )
 
-        with patch("src.main.extract_version", return_value=None):
+        with patch("src.main.parse_branch", return_value=None):
             outputs = handle_branch_create(mock_github_api, context, inputs)
 
         assert outputs.tag == ""
@@ -1475,7 +1475,7 @@ class TestMainCoverageGaps:
             target_branch="",
         )
 
-        with patch("src.main.extract_version", return_value=None):
+        with patch("src.main.parse_branch", return_value=None):
             outputs = handle_commit_push(mock_github_api, context, inputs)
 
         assert outputs.tag == ""

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Mark Ferrell. MIT License.
 """Alias tag management for semantic versioning releases.
 
-This module handles major (vX) and minor (vX.Y) alias tag updates
+This module handles major ({prefix}X) and minor ({prefix}X.Y) alias tag updates
 with multi-branch support according to SemVer 2.0.0 conventions.
 
 References:
@@ -12,9 +12,10 @@ References:
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
-from src.tags import PATCH_TAG_PATTERN, is_rc_tag
+from src.tags import is_rc_tag
 
 if TYPE_CHECKING:
     from src.github_api import GitHubAPI
@@ -33,11 +34,25 @@ __all__ = [
 ]
 
 
-def parse_release_tag(tag_name: str) -> tuple[int, int, int] | None:
+def _create_patch_pattern(tag_prefix: str) -> re.Pattern[str]:
+    """Create regex pattern for GA/patch tags with given prefix.
+
+    Args:
+        tag_prefix: The prefix for tags (e.g., 'v', 'pkg-v').
+
+    Returns:
+        Compiled regex pattern matching {prefix}X.Y.Z.
+    """
+    escaped_prefix = re.escape(tag_prefix)
+    return re.compile(f"^{escaped_prefix}(\\d+)\\.(\\d+)\\.(\\d+)$")
+
+
+def parse_release_tag(tag_name: str, tag_prefix: str = "v") -> tuple[int, int, int] | None:
     """Parse a release tag into (major, minor, patch) components.
 
     Args:
         tag_name: The tag name to parse (e.g., 'v1.2.3').
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         Tuple of (major, minor, patch) or None if not a valid release tag.
@@ -48,18 +63,20 @@ def parse_release_tag(tag_name: str) -> tuple[int, int, int] | None:
         >>> parse_release_tag("v1.2.0-rc1")
         None
     """
-    match = PATCH_TAG_PATTERN.match(tag_name)
+    pattern = _create_patch_pattern(tag_prefix)
+    match = pattern.match(tag_name)
     if match:
         return int(match.group(1)), int(match.group(2)), int(match.group(3))
     return None
 
 
-def find_highest_major_version(api: GitHubAPI, major: int) -> tuple[int, int, int] | None:
-    """Find the highest vX.*.* release across all branches for a given major version.
+def find_highest_major_version(api: GitHubAPI, major: int, tag_prefix: str = "v") -> tuple[int, int, int] | None:
+    """Find the highest {prefix}X.*.* release across all branches for a given major version.
 
     Args:
         api: GitHubAPI instance for fetching tags.
         major: Major version number to search for.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         Tuple of (major, minor, patch) for the highest release, or None if none found.
@@ -76,7 +93,7 @@ def find_highest_major_version(api: GitHubAPI, major: int) -> tuple[int, int, in
     highest: tuple[int, int, int] | None = None
 
     for tag in tags:
-        parsed = parse_release_tag(tag.name)
+        parsed = parse_release_tag(tag.name, tag_prefix)
         if parsed is None:
             continue
 
@@ -94,13 +111,16 @@ def find_highest_major_version(api: GitHubAPI, major: int) -> tuple[int, int, in
     return highest
 
 
-def find_highest_minor_version(api: GitHubAPI, major: int, minor: int) -> tuple[int, int, int] | None:
-    """Find the highest vX.Y.* release in a minor series.
+def find_highest_minor_version(
+    api: GitHubAPI, major: int, minor: int, tag_prefix: str = "v"
+) -> tuple[int, int, int] | None:
+    """Find the highest {prefix}X.Y.* release in a minor series.
 
     Args:
         api: GitHubAPI instance for fetching tags.
         major: Major version number.
         minor: Minor version number.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         Tuple of (major, minor, patch) for the highest release, or None if none found.
@@ -117,7 +137,7 @@ def find_highest_minor_version(api: GitHubAPI, major: int, minor: int) -> tuple[
     highest: tuple[int, int, int] | None = None
 
     for tag in tags:
-        parsed = parse_release_tag(tag.name)
+        parsed = parse_release_tag(tag.name, tag_prefix)
         if parsed is None:
             continue
 
@@ -135,8 +155,10 @@ def update_alias_tags(
     api: GitHubAPI,
     tag_name: str,
     commit_sha: str,
+    tag_prefix: str = "v",
+    skip_minor_alias: bool = False,
 ) -> dict[str, bool]:
-    """Update major (vX) and minor (vX.Y) alias tags for a release.
+    """Update major ({prefix}X) and minor ({prefix}X.Y) alias tags for a release.
 
     Skips alias updates for RC releases. Uses force-push to update
     movable alias tags.
@@ -145,6 +167,9 @@ def update_alias_tags(
         api: GitHubAPI instance for tag operations.
         tag_name: The release tag name (e.g., 'v1.2.3').
         commit_sha: SHA of the commit the release tag points to.
+        tag_prefix: The tag prefix to use for aliases (default: 'v').
+        skip_minor_alias: If True, skip creating the minor alias to avoid
+            branch/tag conflict when release_prefix == tag_prefix.
 
     Returns:
         Dict with 'major' and 'minor' keys indicating if each alias was updated.
@@ -156,34 +181,43 @@ def update_alias_tags(
         {'major': False, 'minor': False}
 
     References:
-        - Requirements 6.1, 6.2, 6.3, 6.4, 7.3
+        - Requirements 2.5, 6.1, 6.2, 6.3, 6.4, 7.3
     """
     result = {"major": False, "minor": False}
 
     # Skip alias updates for RC releases
-    if is_rc_tag(tag_name):
+    if is_rc_tag(tag_name, tag_prefix):
         logger.info("Skipping alias updates for RC release '%s'", tag_name)
         return result
 
-    parsed = parse_release_tag(tag_name)
+    parsed = parse_release_tag(tag_name, tag_prefix)
     if parsed is None:
         logger.warning("Cannot parse release tag '%s', skipping alias updates", tag_name)
         return result
 
     major, minor, patch = parsed
 
-    # Update minor alias (vX.Y) if this is the highest patch in the series
-    minor_alias = f"v{major}.{minor}"
-    highest_minor = find_highest_minor_version(api, major, minor)
+    # Update minor alias ({prefix}X.Y) if this is the highest patch in the series
+    # Skip if skip_minor_alias is True (to avoid branch/tag conflict)
+    if not skip_minor_alias:
+        minor_alias = f"{tag_prefix}{major}.{minor}"
+        highest_minor = find_highest_minor_version(api, major, minor, tag_prefix)
 
-    if highest_minor is not None and (major, minor, patch) >= highest_minor:
-        _update_or_create_alias(api, minor_alias, commit_sha)
-        result["minor"] = True
-        logger.info("Updated minor alias '%s' to point to '%s'", minor_alias, tag_name)
+        if highest_minor is not None and (major, minor, patch) >= highest_minor:
+            _update_or_create_alias(api, minor_alias, commit_sha)
+            result["minor"] = True
+            logger.info("Updated minor alias '%s' to point to '%s'", minor_alias, tag_name)
+    else:
+        logger.info(
+            "Skipping minor alias '%s%d.%d' to avoid conflict with release branch",
+            tag_prefix,
+            major,
+            minor,
+        )
 
-    # Update major alias (vX) if this is the highest release in the major series
-    major_alias = f"v{major}"
-    highest_major = find_highest_major_version(api, major)
+    # Update major alias ({prefix}X) if this is the highest release in the major series
+    major_alias = f"{tag_prefix}{major}"
+    highest_major = find_highest_major_version(api, major, tag_prefix)
 
     if highest_major is not None and (major, minor, patch) >= highest_major:
         _update_or_create_alias(api, major_alias, commit_sha)
@@ -217,6 +251,7 @@ def should_update_major_alias(
     major: int,
     minor: int,
     patch: int,
+    tag_prefix: str = "v",
 ) -> bool:
     """Check if a release should update the major alias tag.
 
@@ -225,6 +260,7 @@ def should_update_major_alias(
         major: Major version number.
         minor: Minor version number.
         patch: Patch version number.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         True if this release is the highest in the major series.
@@ -237,7 +273,7 @@ def should_update_major_alias(
     References:
         - Requirements 6.1, 7.3
     """
-    highest = find_highest_major_version(api, major)
+    highest = find_highest_major_version(api, major, tag_prefix)
     if highest is None:
         return True
     return (major, minor, patch) >= highest
@@ -248,6 +284,7 @@ def should_update_minor_alias(
     major: int,
     minor: int,
     patch: int,
+    tag_prefix: str = "v",
 ) -> bool:
     """Check if a release should update the minor alias tag.
 
@@ -256,6 +293,7 @@ def should_update_minor_alias(
         major: Major version number.
         minor: Minor version number.
         patch: Patch version number.
+        tag_prefix: The tag prefix to match (default: 'v').
 
     Returns:
         True if this release is the highest in the minor series.
@@ -268,7 +306,7 @@ def should_update_minor_alias(
     References:
         - Requirements 6.2, 7.2
     """
-    highest = find_highest_minor_version(api, major, minor)
+    highest = find_highest_minor_version(api, major, minor, tag_prefix)
     if highest is None:
         return True
     return (major, minor, patch) >= highest
