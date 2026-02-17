@@ -1120,3 +1120,1092 @@ class TestManualTagValidation:
         assert result is False, (
             f"Commit from release/v{major}.{minor} validated against " f"{wrong_branch} should be rejected"
         )
+
+
+# =============================================================================
+# CONFIGURABLE PREFIX PROPERTY TESTS
+# =============================================================================
+# These property tests validate the configurable prefix feature for release
+# branches and tags.
+#
+# Feature: configurable-prefixes
+# =============================================================================
+
+
+# Strategy for generating valid release prefixes
+@st.composite
+def valid_release_prefix(draw: st.DrawFn) -> str:
+    """Generate valid release prefixes for branch names.
+
+    Valid prefixes are non-empty strings that don't contain invalid git ref chars.
+    """
+    # Use a mix of common prefixes and generated ones
+    common_prefixes = ["release/v", "v", "pkg-v", "pkg-", "api/", "main/v", "lib-"]
+    choice: str = draw(st.sampled_from(["common", "generated"]))
+
+    if choice == "common":
+        prefix: str = draw(st.sampled_from(common_prefixes))
+        return prefix
+    else:
+        # Generate a prefix from safe characters
+        safe_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_/"
+        prefix = draw(st.text(alphabet=safe_chars, min_size=1, max_size=15))
+        return prefix
+
+
+# Strategy for generating valid tag prefixes
+@st.composite
+def valid_tag_prefix(draw: st.DrawFn) -> str:
+    """Generate valid tag prefixes.
+
+    Valid prefixes are non-empty strings that don't contain invalid git ref chars.
+    """
+    common_prefixes = ["v", "pkg-v", "pkg-", "api-", "lib-v"]
+    choice: str = draw(st.sampled_from(["common", "generated"]))
+
+    if choice == "common":
+        prefix: str = draw(st.sampled_from(common_prefixes))
+        return prefix
+    else:
+        safe_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+        prefix = draw(st.text(alphabet=safe_chars, min_size=1, max_size=10))
+        return prefix
+
+
+class TestBranchPatternConstruction:
+    """Property 1: Branch Pattern Construction Correctness.
+
+    *For any* valid release prefix and any valid major/minor version pair
+    (non-negative integers without leading zeros), the constructed branch pattern
+    regex SHALL match the branch name `{prefix}{major}.{minor}` and extract the
+    correct version numbers.
+
+    Feature: configurable-prefixes, Property 1: Branch Pattern Construction Correctness
+
+    **Validates: Requirements 1.4, 3.1, 3.5**
+    """
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_pattern_matches_valid_branch(self, prefix: str, major: int, minor: int) -> None:
+        """Constructed pattern SHALL match valid branch names.
+
+        **Validates: Requirements 1.4, 3.1**
+        """
+        from src.branch import create_branch_pattern
+
+        pattern = create_branch_pattern(prefix)
+        branch_name = f"{prefix}{major}.{minor}"
+
+        match = pattern.match(branch_name)
+        assert match is not None, f"Pattern for prefix '{prefix}' should match '{branch_name}'"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_pattern_extracts_correct_version(self, prefix: str, major: int, minor: int) -> None:
+        """Constructed pattern SHALL extract correct major and minor versions.
+
+        **Validates: Requirements 3.1, 3.5**
+        """
+        from src.branch import create_branch_pattern
+
+        pattern = create_branch_pattern(prefix)
+        branch_name = f"{prefix}{major}.{minor}"
+
+        match = pattern.match(branch_name)
+        assert match is not None
+
+        extracted_major = int(match.group(1))
+        extracted_minor = int(match.group(2))
+
+        assert extracted_major == major, f"Expected major {major}, got {extracted_major} for branch '{branch_name}'"
+        assert extracted_minor == minor, f"Expected minor {minor}, got {extracted_minor} for branch '{branch_name}'"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_parse_branch_extracts_version(self, prefix: str, major: int, minor: int) -> None:
+        """parse_branch SHALL extract correct version for any valid prefix.
+
+        **Validates: Requirements 3.1, 3.5**
+        """
+        from src.branch import parse_branch
+
+        branch_name = f"{prefix}{major}.{minor}"
+        version = parse_branch(branch_name, release_prefix=prefix)
+
+        assert version is not None, f"parse_branch should succeed for '{branch_name}'"
+        assert version.major == major, f"Expected major {major}, got {version.major}"
+        assert version.minor == minor, f"Expected minor {minor}, got {version.minor}"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_pattern_escapes_special_regex_chars(self, prefix: str, major: int, minor: int) -> None:
+        """Pattern SHALL properly escape special regex characters in prefix.
+
+        **Validates: Requirements 1.4**
+        """
+        from src.branch import create_branch_pattern
+
+        # Test with prefixes containing regex special chars
+        special_prefixes = [
+            "release/v",  # Contains /
+            "pkg.v",  # Contains .
+            "api-v",  # Contains -
+        ]
+
+        for special_prefix in special_prefixes:
+            pattern = create_branch_pattern(special_prefix)
+            branch_name = f"{special_prefix}{major}.{minor}"
+
+            match = pattern.match(branch_name)
+            assert match is not None, f"Pattern should match '{branch_name}' with special prefix '{special_prefix}'"
+
+
+class TestLeadingZeroRejection:
+    """Property 2: Leading Zero Rejection.
+
+    *For any* release prefix and any branch name containing leading zeros in either
+    the major or minor version component, the branch validator SHALL reject the branch.
+
+    Feature: configurable-prefixes, Property 2: Leading Zero Rejection
+
+    **Validates: Requirements 3.2, 3.3**
+    """
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_leading_zero_in_major_rejected(self, prefix: str, major: int, minor: int) -> None:
+        """Branches with leading zeros in major version SHALL be rejected.
+
+        **Validates: Requirements 3.2**
+        """
+        from src.branch import parse_branch
+
+        # Create branch with leading zero in major (e.g., "release/v01.2")
+        major_str = f"0{major}"  # Always add leading zero
+        branch_name = f"{prefix}{major_str}.{minor}"
+
+        version = parse_branch(branch_name, release_prefix=prefix)
+        assert version is None, f"Branch '{branch_name}' with leading zero in major should be rejected"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=99),
+    )
+    def test_leading_zero_in_minor_rejected(self, prefix: str, major: int, minor: int) -> None:
+        """Branches with leading zeros in minor version SHALL be rejected.
+
+        **Validates: Requirements 3.3**
+        """
+        from src.branch import parse_branch
+
+        # Create branch with leading zero in minor (e.g., "release/v1.02")
+        minor_str = f"0{minor}"  # Always add leading zero
+        branch_name = f"{prefix}{major}.{minor_str}"
+
+        version = parse_branch(branch_name, release_prefix=prefix)
+        assert version is None, f"Branch '{branch_name}' with leading zero in minor should be rejected"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=99),
+    )
+    def test_leading_zeros_in_both_rejected(self, prefix: str, major: int, minor: int) -> None:
+        """Branches with leading zeros in both major and minor SHALL be rejected.
+
+        **Validates: Requirements 3.2, 3.3**
+        """
+        from src.branch import parse_branch
+
+        # Create branch with leading zeros in both (e.g., "release/v01.02")
+        major_str = f"0{major}"
+        minor_str = f"0{minor}"
+        branch_name = f"{prefix}{major_str}.{minor_str}"
+
+        version = parse_branch(branch_name, release_prefix=prefix)
+        assert version is None, f"Branch '{branch_name}' with leading zeros in both should be rejected"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_zero_major_without_leading_zero_accepted(self, prefix: str, minor: int) -> None:
+        """Branch with major=0 (no leading zero) SHALL be accepted.
+
+        **Validates: Requirements 3.2**
+        """
+        from src.branch import parse_branch
+
+        # "0" is valid, "00" is not
+        branch_name = f"{prefix}0.{minor}"
+
+        version = parse_branch(branch_name, release_prefix=prefix)
+        assert version is not None, f"Branch '{branch_name}' with major=0 should be accepted"
+        assert version.major == 0
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+    )
+    def test_zero_minor_without_leading_zero_accepted(self, prefix: str, major: int) -> None:
+        """Branch with minor=0 (no leading zero) SHALL be accepted.
+
+        **Validates: Requirements 3.3**
+        """
+        from src.branch import parse_branch
+
+        # "0" is valid, "00" is not
+        branch_name = f"{prefix}{major}.0"
+
+        version = parse_branch(branch_name, release_prefix=prefix)
+        assert version is not None, f"Branch '{branch_name}' with minor=0 should be accepted"
+        assert version.minor == 0
+
+
+class TestPrefixMismatchRejection:
+    """Property 3: Prefix Mismatch Rejection.
+
+    *For any* configured release prefix and any branch name that does not start
+    with that exact prefix, the branch validator SHALL reject the branch.
+
+    Feature: configurable-prefixes, Property 3: Prefix Mismatch Rejection
+
+    **Validates: Requirements 3.4**
+    """
+
+    @settings(max_examples=100)
+    @given(
+        configured_prefix=valid_release_prefix(),
+        wrong_prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_wrong_prefix_rejected(self, configured_prefix: str, wrong_prefix: str, major: int, minor: int) -> None:
+        """Branches with wrong prefix SHALL be rejected.
+
+        **Validates: Requirements 3.4**
+        """
+        from hypothesis import assume
+
+        from src.branch import parse_branch
+
+        # Ensure prefixes are different
+        assume(configured_prefix != wrong_prefix)
+        # Ensure wrong_prefix doesn't start with configured_prefix (would be a partial match)
+        assume(not wrong_prefix.startswith(configured_prefix))
+
+        # Create branch with wrong prefix
+        branch_name = f"{wrong_prefix}{major}.{minor}"
+
+        version = parse_branch(branch_name, release_prefix=configured_prefix)
+        assert version is None, (
+            f"Branch '{branch_name}' with wrong prefix should be rejected "
+            f"when configured prefix is '{configured_prefix}'"
+        )
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_default_prefix_rejects_short_prefix(self, major: int, minor: int) -> None:
+        """Default prefix 'release/v' SHALL reject short 'v' prefix branches.
+
+        **Validates: Requirements 3.4**
+        """
+        from src.branch import parse_branch
+
+        # Branch with short prefix
+        branch_name = f"v{major}.{minor}"
+
+        # Should be rejected when using default prefix
+        version = parse_branch(branch_name, release_prefix="release/v")
+        assert version is None, f"Branch '{branch_name}' should be rejected with default prefix 'release/v'"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_short_prefix_rejects_default_prefix(self, major: int, minor: int) -> None:
+        """Short prefix 'v' SHALL reject default 'release/v' prefix branches.
+
+        **Validates: Requirements 3.4**
+        """
+        from src.branch import parse_branch
+
+        # Branch with default prefix
+        branch_name = f"release/v{major}.{minor}"
+
+        # Should be rejected when using short prefix
+        version = parse_branch(branch_name, release_prefix="v")
+        assert version is None, f"Branch '{branch_name}' should be rejected with short prefix 'v'"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_missing_prefix_rejected(self, prefix: str, major: int, minor: int) -> None:
+        """Branches without any prefix SHALL be rejected.
+
+        **Validates: Requirements 3.4**
+        """
+        from src.branch import parse_branch
+
+        # Branch without prefix (just version numbers)
+        branch_name = f"{major}.{minor}"
+
+        version = parse_branch(branch_name, release_prefix=prefix)
+        assert version is None, f"Branch '{branch_name}' without prefix should be rejected"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_release_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+        extra_text=st.text(min_size=1, max_size=10),
+    )
+    def test_partial_prefix_match_rejected(self, prefix: str, major: int, minor: int, extra_text: str) -> None:
+        """Branches with partial prefix match SHALL be rejected.
+
+        **Validates: Requirements 3.4**
+        """
+        from hypothesis import assume
+
+        from src.branch import parse_branch
+
+        # Ensure extra_text doesn't accidentally create a valid pattern
+        assume(not extra_text[0].isdigit())
+
+        # Create branch with extra text after prefix
+        branch_name = f"{prefix}{extra_text}{major}.{minor}"
+
+        version = parse_branch(branch_name, release_prefix=prefix)
+        assert version is None, f"Branch '{branch_name}' with extra text should be rejected"
+
+
+class TestTagPrefixApplication:
+    """Property 4: Tag Prefix Application.
+
+    *For any* tag prefix and any valid version (major.minor.patch with optional
+    prerelease), all created tags SHALL start with the configured tag prefix.
+
+    Feature: configurable-prefixes, Property 4: Tag Prefix Application
+
+    **Validates: Requirements 2.3, 2.4**
+    """
+
+    @settings(max_examples=100)
+    @given(
+        tag_prefix=valid_tag_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_rc_tags_use_configured_prefix(self, tag_prefix: str, major: int, minor: int) -> None:
+        """RC tags SHALL use the configured tag prefix.
+
+        **Validates: Requirements 2.3**
+        """
+        from unittest.mock import MagicMock
+
+        from src.tags import get_next_rc_tag
+
+        mock_api = MagicMock()
+        mock_api.list_tags.return_value = []
+
+        tag_name = get_next_rc_tag(mock_api, major, minor, tag_prefix)
+
+        assert tag_name.startswith(tag_prefix), f"RC tag '{tag_name}' should start with prefix '{tag_prefix}'"
+        expected = f"{tag_prefix}{major}.{minor}.0-rc1"
+        assert tag_name == expected, f"Expected '{expected}', got '{tag_name}'"
+
+    @settings(max_examples=100)
+    @given(
+        tag_prefix=valid_tag_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_patch_tags_use_configured_prefix(self, tag_prefix: str, major: int, minor: int) -> None:
+        """Patch tags SHALL use the configured tag prefix.
+
+        **Validates: Requirements 2.3**
+        """
+        from unittest.mock import MagicMock
+
+        from src.tags import get_next_patch_tag
+
+        mock_api = MagicMock()
+        # Simulate GA tag exists
+        ga_tag = MagicMock()
+        ga_tag.name = f"{tag_prefix}{major}.{minor}.0"
+        mock_api.list_tags.return_value = [ga_tag]
+
+        tag_name = get_next_patch_tag(mock_api, major, minor, tag_prefix)
+
+        assert tag_name.startswith(tag_prefix), f"Patch tag '{tag_name}' should start with prefix '{tag_prefix}'"
+        expected = f"{tag_prefix}{major}.{minor}.1"
+        assert tag_name == expected, f"Expected '{expected}', got '{tag_name}'"
+
+    @settings(max_examples=100)
+    @given(
+        tag_prefix=valid_tag_prefix(),
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=99),
+        patch=st.integers(min_value=0, max_value=99),
+    )
+    def test_alias_tags_use_configured_prefix(self, tag_prefix: str, major: int, minor: int, patch: int) -> None:
+        """Alias tags SHALL use the configured tag prefix.
+
+        **Validates: Requirements 2.4**
+        """
+        from unittest.mock import MagicMock
+
+        from src.aliases import update_alias_tags
+
+        mock_api = MagicMock()
+        # Create a release tag
+        release_tag = MagicMock()
+        release_tag.name = f"{tag_prefix}{major}.{minor}.{patch}"
+        mock_api.list_tags.return_value = [release_tag]
+        mock_api.tag_exists.return_value = False
+
+        tag_name = f"{tag_prefix}{major}.{minor}.{patch}"
+        commit_sha = "a" * 40
+
+        result = update_alias_tags(mock_api, tag_name, commit_sha, tag_prefix=tag_prefix)
+
+        # Check that create_tag was called with correct prefix
+        if result["major"]:
+            # Find the major alias call
+            calls = mock_api.create_tag.call_args_list
+            major_alias_calls = [c for c in calls if c[0][0] == f"{tag_prefix}{major}"]
+            assert len(major_alias_calls) > 0, f"Major alias should be created with prefix '{tag_prefix}'"
+
+        if result["minor"]:
+            calls = mock_api.create_tag.call_args_list
+            minor_alias_calls = [c for c in calls if c[0][0] == f"{tag_prefix}{major}.{minor}"]
+            assert len(minor_alias_calls) > 0, f"Minor alias should be created with prefix '{tag_prefix}'"
+
+    @settings(max_examples=100)
+    @given(
+        tag_prefix=valid_tag_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+        num_rcs=st.integers(min_value=1, max_value=10),
+    )
+    def test_sequential_rc_tags_all_use_prefix(self, tag_prefix: str, major: int, minor: int, num_rcs: int) -> None:
+        """All sequential RC tags SHALL use the configured prefix.
+
+        **Validates: Requirements 2.3**
+        """
+        from unittest.mock import MagicMock
+
+        from src.tags import get_next_rc_tag
+
+        mock_api = MagicMock()
+        created_tags: list[str] = []
+
+        def list_tags_side_effect() -> list[MagicMock]:
+            result = []
+            for tag_name in created_tags:
+                tag = MagicMock()
+                tag.name = tag_name
+                result.append(tag)
+            return result
+
+        mock_api.list_tags.side_effect = list_tags_side_effect
+
+        for i in range(num_rcs):
+            tag_name = get_next_rc_tag(mock_api, major, minor, tag_prefix)
+            assert tag_name.startswith(
+                tag_prefix
+            ), f"RC tag {i + 1} '{tag_name}' should start with prefix '{tag_prefix}'"
+            created_tags.append(tag_name)
+
+    @settings(max_examples=100)
+    @given(
+        tag_prefix=valid_tag_prefix(),
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+        num_patches=st.integers(min_value=1, max_value=10),
+    )
+    def test_sequential_patch_tags_all_use_prefix(
+        self, tag_prefix: str, major: int, minor: int, num_patches: int
+    ) -> None:
+        """All sequential patch tags SHALL use the configured prefix.
+
+        **Validates: Requirements 2.3**
+        """
+        from unittest.mock import MagicMock
+
+        from src.tags import get_next_patch_tag
+
+        mock_api = MagicMock()
+        # Start with GA tag
+        created_tags: list[str] = [f"{tag_prefix}{major}.{minor}.0"]
+
+        def list_tags_side_effect() -> list[MagicMock]:
+            result = []
+            for tag_name in created_tags:
+                tag = MagicMock()
+                tag.name = tag_name
+                result.append(tag)
+            return result
+
+        mock_api.list_tags.side_effect = list_tags_side_effect
+
+        for i in range(num_patches):
+            tag_name = get_next_patch_tag(mock_api, major, minor, tag_prefix)
+            assert tag_name.startswith(
+                tag_prefix
+            ), f"Patch tag {i + 1} '{tag_name}' should start with prefix '{tag_prefix}'"
+            created_tags.append(tag_name)
+
+
+class TestAliasSkipLogic:
+    """Property 5: Alias Skip When Prefixes Match.
+
+    *For any* configuration where `release_prefix == tag_prefix`, the minor alias
+    (`{tag_prefix}X.Y`) SHALL NOT be created, while the major alias (`{tag_prefix}X`)
+    SHALL still be created.
+
+    Feature: configurable-prefixes, Property 5: Alias Skip When Prefixes Match
+
+    **Validates: Requirements 2.5**
+    """
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_tag_prefix(),
+    )
+    def test_should_skip_minor_alias_when_prefixes_match(self, prefix: str) -> None:
+        """should_skip_minor_alias SHALL return True when prefixes match.
+
+        **Validates: Requirements 2.5**
+        """
+        from src.branch import should_skip_minor_alias
+
+        result = should_skip_minor_alias(prefix, prefix)
+        assert result is True, f"should_skip_minor_alias should return True when both prefixes are '{prefix}'"
+
+    @settings(max_examples=100)
+    @given(
+        release_prefix=valid_release_prefix(),
+        tag_prefix=valid_tag_prefix(),
+    )
+    def test_should_not_skip_when_prefixes_differ(self, release_prefix: str, tag_prefix: str) -> None:
+        """should_skip_minor_alias SHALL return False when prefixes differ.
+
+        **Validates: Requirements 2.5**
+        """
+        from hypothesis import assume
+
+        from src.branch import should_skip_minor_alias
+
+        assume(release_prefix != tag_prefix)
+
+        result = should_skip_minor_alias(release_prefix, tag_prefix)
+        assert result is False, (
+            f"should_skip_minor_alias should return False when prefixes differ: "
+            f"release='{release_prefix}', tag='{tag_prefix}'"
+        )
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_tag_prefix(),
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=99),
+        patch=st.integers(min_value=0, max_value=99),
+    )
+    def test_minor_alias_skipped_when_prefixes_match(self, prefix: str, major: int, minor: int, patch: int) -> None:
+        """Minor alias SHALL be skipped when release_prefix == tag_prefix.
+
+        **Validates: Requirements 2.5**
+        """
+        from unittest.mock import MagicMock
+
+        from src.aliases import update_alias_tags
+
+        mock_api = MagicMock()
+        # Create a release tag
+        release_tag = MagicMock()
+        release_tag.name = f"{prefix}{major}.{minor}.{patch}"
+        mock_api.list_tags.return_value = [release_tag]
+        mock_api.tag_exists.return_value = False
+
+        tag_name = f"{prefix}{major}.{minor}.{patch}"
+        commit_sha = "a" * 40
+
+        # Call with skip_minor_alias=True (simulating matching prefixes)
+        result = update_alias_tags(mock_api, tag_name, commit_sha, tag_prefix=prefix, skip_minor_alias=True)
+
+        # Minor alias should NOT be updated
+        assert result["minor"] is False, "Minor alias should be skipped when skip_minor_alias=True"
+
+        # Major alias should still be updated
+        assert result["major"] is True, "Major alias should still be created when skip_minor_alias=True"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=valid_tag_prefix(),
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=99),
+        patch=st.integers(min_value=0, max_value=99),
+    )
+    def test_minor_alias_created_when_prefixes_differ(self, prefix: str, major: int, minor: int, patch: int) -> None:
+        """Minor alias SHALL be created when release_prefix != tag_prefix.
+
+        **Validates: Requirements 2.5**
+        """
+        from unittest.mock import MagicMock
+
+        from src.aliases import update_alias_tags
+
+        mock_api = MagicMock()
+        # Create a release tag
+        release_tag = MagicMock()
+        release_tag.name = f"{prefix}{major}.{minor}.{patch}"
+        mock_api.list_tags.return_value = [release_tag]
+        mock_api.tag_exists.return_value = False
+
+        tag_name = f"{prefix}{major}.{minor}.{patch}"
+        commit_sha = "a" * 40
+
+        # Call with skip_minor_alias=False (simulating different prefixes)
+        result = update_alias_tags(mock_api, tag_name, commit_sha, tag_prefix=prefix, skip_minor_alias=False)
+
+        # Both aliases should be updated
+        assert result["minor"] is True, "Minor alias should be created when skip_minor_alias=False"
+        assert result["major"] is True, "Major alias should be created when skip_minor_alias=False"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=99),
+        patch=st.integers(min_value=0, max_value=99),
+    )
+    def test_default_prefix_creates_both_aliases(self, major: int, minor: int, patch: int) -> None:
+        """Default prefixes (release/v and v) SHALL create both aliases.
+
+        **Validates: Requirements 2.5**
+        """
+        from src.branch import should_skip_minor_alias
+
+        # Default: release_prefix="release/v", tag_prefix="v"
+        result = should_skip_minor_alias("release/v", "v")
+        assert result is False, "Default prefixes should NOT skip minor alias"
+
+    @settings(max_examples=100)
+    @given(
+        prefix=st.sampled_from(["v", "pkg-v", "pkg-", "api-"]),
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=99),
+        patch=st.integers(min_value=0, max_value=99),
+    )
+    def test_short_prefix_skips_minor_alias(self, prefix: str, major: int, minor: int, patch: int) -> None:
+        """Short prefix (same for branch and tag) SHALL skip minor alias.
+
+        **Validates: Requirements 2.5**
+        """
+        from unittest.mock import MagicMock
+
+        from src.aliases import update_alias_tags
+        from src.branch import should_skip_minor_alias
+
+        # When release_prefix == tag_prefix
+        skip = should_skip_minor_alias(prefix, prefix)
+        assert skip is True
+
+        mock_api = MagicMock()
+        release_tag = MagicMock()
+        release_tag.name = f"{prefix}{major}.{minor}.{patch}"
+        mock_api.list_tags.return_value = [release_tag]
+        mock_api.tag_exists.return_value = False
+
+        tag_name = f"{prefix}{major}.{minor}.{patch}"
+        commit_sha = "a" * 40
+
+        result = update_alias_tags(mock_api, tag_name, commit_sha, tag_prefix=prefix, skip_minor_alias=skip)
+
+        assert result["minor"] is False, f"Minor alias should be skipped for short prefix '{prefix}'"
+        assert result["major"] is True, f"Major alias should still be created for short prefix '{prefix}'"
+
+
+# Strategy for generating strings with invalid git ref characters
+@st.composite
+def string_with_invalid_git_chars(draw: st.DrawFn) -> str:
+    """Generate strings containing characters invalid for git refs."""
+    invalid_chars = ["..", "~", "^", ":", "\\", " ", "\t", "\n", "*", "?", "["]
+    invalid_char = draw(st.sampled_from(invalid_chars))
+
+    # Generate some text around the invalid character
+    safe_chars = "abcdefghijklmnopqrstuvwxyz0123456789-_/"
+    prefix = draw(st.text(alphabet=safe_chars, min_size=0, max_size=5))
+    suffix = draw(st.text(alphabet=safe_chars, min_size=0, max_size=5))
+
+    return f"{prefix}{invalid_char}{suffix}"
+
+
+class TestPrefixValidation:
+    """Property 6: Prefix Validation.
+
+    *For any* string containing characters invalid for git refs (e.g., `..`, `~`,
+    `^`, `:`, `\\`, space, `*`, `?`, `[`), `validate_prefix()` SHALL return false.
+    For any empty string, `validate_prefix()` SHALL also return false.
+
+    Feature: configurable-prefixes, Property 6: Prefix Validation
+
+    **Validates: Requirements 1.5, 2.6**
+    """
+
+    @settings(max_examples=100)
+    @given(prefix=string_with_invalid_git_chars())
+    def test_invalid_chars_rejected(self, prefix: str) -> None:
+        """Prefixes with invalid git ref characters SHALL be rejected.
+
+        **Validates: Requirements 1.5, 2.6**
+        """
+        from src.branch import validate_prefix
+
+        result = validate_prefix(prefix)
+        assert result is False, f"Prefix '{repr(prefix)}' with invalid git ref chars should be rejected"
+
+    def test_empty_prefix_rejected(self) -> None:
+        """Empty prefix SHALL be rejected.
+
+        **Validates: Requirements 1.5, 2.6**
+        """
+        from src.branch import validate_prefix
+
+        result = validate_prefix("")
+        assert result is False, "Empty prefix should be rejected"
+
+    @settings(max_examples=100)
+    @given(prefix=valid_release_prefix())
+    def test_valid_prefixes_accepted(self, prefix: str) -> None:
+        """Valid prefixes SHALL be accepted.
+
+        **Validates: Requirements 1.5, 2.6**
+        """
+        from src.branch import validate_prefix
+
+        result = validate_prefix(prefix)
+        assert result is True, f"Valid prefix '{prefix}' should be accepted"
+
+    @settings(max_examples=100)
+    @given(prefix=valid_tag_prefix())
+    def test_valid_tag_prefixes_accepted(self, prefix: str) -> None:
+        """Valid tag prefixes SHALL be accepted.
+
+        **Validates: Requirements 2.6**
+        """
+        from src.branch import validate_prefix
+
+        result = validate_prefix(prefix)
+        assert result is True, f"Valid tag prefix '{prefix}' should be accepted"
+
+    def test_specific_invalid_chars(self) -> None:
+        """Each specific invalid character SHALL cause rejection.
+
+        **Validates: Requirements 1.5, 2.6**
+        """
+        from src.branch import validate_prefix
+
+        invalid_prefixes = [
+            "bad..prefix",  # Contains ..
+            "bad~prefix",  # Contains ~
+            "bad^prefix",  # Contains ^
+            "bad:prefix",  # Contains :
+            "bad\\prefix",  # Contains \
+            "bad prefix",  # Contains space
+            "bad\tprefix",  # Contains tab
+            "bad\nprefix",  # Contains newline
+            "bad*prefix",  # Contains *
+            "bad?prefix",  # Contains ?
+            "bad[prefix",  # Contains [
+        ]
+
+        for prefix in invalid_prefixes:
+            result = validate_prefix(prefix)
+            assert result is False, f"Prefix '{repr(prefix)}' should be rejected"
+
+    def test_common_valid_prefixes(self) -> None:
+        """Common valid prefixes SHALL be accepted.
+
+        **Validates: Requirements 1.5, 2.6**
+        """
+        from src.branch import validate_prefix
+
+        valid_prefixes = [
+            "release/v",
+            "v",
+            "pkg-v",
+            "pkg-",
+            "api/",
+            "main/v",
+            "lib-",
+            "app-v",
+            "service-",
+        ]
+
+        for prefix in valid_prefixes:
+            result = validate_prefix(prefix)
+            assert result is True, f"Common prefix '{prefix}' should be accepted"
+
+    @settings(max_examples=100)
+    @given(
+        base=st.text(
+            alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_/",
+            min_size=1,
+            max_size=20,
+        )
+    )
+    def test_alphanumeric_with_dash_underscore_slash_accepted(self, base: str) -> None:
+        """Alphanumeric prefixes with dash, underscore, slash SHALL be accepted.
+
+        **Validates: Requirements 1.5, 2.6**
+        """
+        from src.branch import validate_prefix
+
+        result = validate_prefix(base)
+        assert result is True, f"Alphanumeric prefix '{base}' should be accepted"
+
+
+class TestBackwardCompatibility:
+    """Property 7: Backward Compatibility.
+
+    *For any* valid `release/vX.Y` branch name with default prefix settings
+    (`release-prefix=release/v`, `tag-prefix=v`), the action SHALL produce
+    identical results to v1.0.x behavior.
+
+    Feature: configurable-prefixes, Property 7: Backward Compatibility
+
+    **Validates: Requirements 8.1**
+    """
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_default_prefix_matches_legacy_behavior(self, major: int, minor: int) -> None:
+        """Default prefix SHALL match legacy release/vX.Y pattern.
+
+        **Validates: Requirements 8.1**
+        """
+        from src.branch import parse_branch
+
+        branch_name = f"release/v{major}.{minor}"
+
+        # Using default prefix should work
+        version = parse_branch(branch_name, release_prefix="release/v")
+        assert version is not None, f"Default prefix should accept '{branch_name}'"
+        assert version.major == major
+        assert version.minor == minor
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_default_tag_prefix_produces_v_tags(self, major: int, minor: int) -> None:
+        """Default tag prefix SHALL produce v-prefixed tags.
+
+        **Validates: Requirements 8.1**
+        """
+        from unittest.mock import MagicMock
+
+        from src.tags import get_next_rc_tag
+
+        mock_api = MagicMock()
+        mock_api.list_tags.return_value = []
+
+        # Using default tag prefix
+        tag_name = get_next_rc_tag(mock_api, major, minor, tag_prefix="v")
+
+        expected = f"v{major}.{minor}.0-rc1"
+        assert tag_name == expected, f"Default tag prefix should produce '{expected}', got '{tag_name}'"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=99),
+        minor=st.integers(min_value=0, max_value=99),
+        patch=st.integers(min_value=0, max_value=99),
+    )
+    def test_default_aliases_created_with_v_prefix(self, major: int, minor: int, patch: int) -> None:
+        """Default settings SHALL create v-prefixed aliases.
+
+        **Validates: Requirements 8.1**
+        """
+        from unittest.mock import MagicMock
+
+        from src.aliases import update_alias_tags
+        from src.branch import should_skip_minor_alias
+
+        mock_api = MagicMock()
+        release_tag = MagicMock()
+        release_tag.name = f"v{major}.{minor}.{patch}"
+        mock_api.list_tags.return_value = [release_tag]
+        mock_api.tag_exists.return_value = False
+
+        tag_name = f"v{major}.{minor}.{patch}"
+        commit_sha = "a" * 40
+
+        # Default: release_prefix="release/v", tag_prefix="v"
+        skip_minor = should_skip_minor_alias("release/v", "v")
+        assert skip_minor is False, "Default prefixes should not skip minor alias"
+
+        result = update_alias_tags(mock_api, tag_name, commit_sha, tag_prefix="v", skip_minor_alias=skip_minor)
+
+        # Both aliases should be created
+        assert result["major"] is True, "Major alias should be created"
+        assert result["minor"] is True, "Minor alias should be created"
+
+        # Verify the alias names
+        calls = mock_api.create_tag.call_args_list
+        alias_names = [c[0][0] for c in calls]
+
+        assert f"v{major}" in alias_names, f"Major alias 'v{major}' should be created"
+        assert f"v{major}.{minor}" in alias_names, f"Minor alias 'v{major}.{minor}' should be created"
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_parse_branch_default_parameter(self, major: int, minor: int) -> None:
+        """parse_branch with no prefix parameter SHALL use default.
+
+        **Validates: Requirements 8.1**
+        """
+        from src.branch import parse_branch
+
+        branch_name = f"release/v{major}.{minor}"
+
+        # Call without explicit prefix - should use default "release/v"
+        version = parse_branch(branch_name)
+        assert version is not None, f"parse_branch should accept '{branch_name}' with default prefix"
+        assert version.major == major
+        assert version.minor == minor
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+    )
+    def test_legacy_branch_pattern_still_works(self, major: int, minor: int) -> None:
+        """Legacy validate_branch function SHALL still work.
+
+        **Validates: Requirements 8.1**
+        """
+        from src.branch import extract_version, validate_branch
+
+        branch_name = f"release/v{major}.{minor}"
+
+        # Legacy functions should still work
+        is_valid = validate_branch(branch_name)
+        assert is_valid is True, f"Legacy validate_branch should accept '{branch_name}'"
+
+        version = extract_version(branch_name)
+        assert version is not None
+        assert version.major == major
+        assert version.minor == minor
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+        num_rcs=st.integers(min_value=1, max_value=10),
+    )
+    def test_rc_sequencing_unchanged_with_defaults(self, major: int, minor: int, num_rcs: int) -> None:
+        """RC tag sequencing SHALL be unchanged with default settings.
+
+        **Validates: Requirements 8.1**
+        """
+        from unittest.mock import MagicMock
+
+        from src.tags import get_next_rc_tag
+
+        mock_api = MagicMock()
+        created_tags: list[str] = []
+
+        def list_tags_side_effect() -> list[MagicMock]:
+            result = []
+            for tag_name in created_tags:
+                tag = MagicMock()
+                tag.name = tag_name
+                result.append(tag)
+            return result
+
+        mock_api.list_tags.side_effect = list_tags_side_effect
+
+        for i in range(num_rcs):
+            # Using default tag prefix
+            tag_name = get_next_rc_tag(mock_api, major, minor, tag_prefix="v")
+            expected = f"v{major}.{minor}.0-rc{i + 1}"
+            assert tag_name == expected, f"RC {i + 1} should be '{expected}', got '{tag_name}'"
+            created_tags.append(tag_name)
+
+    @settings(max_examples=100)
+    @given(
+        major=st.integers(min_value=0, max_value=999),
+        minor=st.integers(min_value=0, max_value=999),
+        num_patches=st.integers(min_value=1, max_value=10),
+    )
+    def test_patch_sequencing_unchanged_with_defaults(self, major: int, minor: int, num_patches: int) -> None:
+        """Patch tag sequencing SHALL be unchanged with default settings.
+
+        **Validates: Requirements 8.1**
+        """
+        from unittest.mock import MagicMock
+
+        from src.tags import get_next_patch_tag
+
+        mock_api = MagicMock()
+        # Start with GA tag
+        created_tags: list[str] = [f"v{major}.{minor}.0"]
+
+        def list_tags_side_effect() -> list[MagicMock]:
+            result = []
+            for tag_name in created_tags:
+                tag = MagicMock()
+                tag.name = tag_name
+                result.append(tag)
+            return result
+
+        mock_api.list_tags.side_effect = list_tags_side_effect
+
+        for i in range(num_patches):
+            # Using default tag prefix
+            tag_name = get_next_patch_tag(mock_api, major, minor, tag_prefix="v")
+            expected = f"v{major}.{minor}.{i + 1}"
+            assert tag_name == expected, f"Patch {i + 1} should be '{expected}', got '{tag_name}'"
+            created_tags.append(tag_name)
