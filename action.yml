@@ -27,6 +27,14 @@ inputs:
     description: 'Create version alias tags (vX, vX.Y) for non-RC releases'
     required: false
     default: 'false'
+  release-prefix:
+    description: 'Prefix for release branch names, prepended to X.Y (e.g., release/v for release/v1.2)'
+    required: false
+    default: 'release/v'
+  tag-prefix:
+    description: 'Prefix for version tags and aliases, prepended to version (e.g., v for v1.2.0)'
+    required: false
+    default: 'v'
 
 outputs:
   tag:
@@ -47,3 +55,5 @@ runs:
     INPUT_DRY_RUN: ${{ inputs.dry-run }}
     INPUT_TARGET_BRANCH: ${{ inputs.target-branch }}
     INPUT_ALIASES: ${{ inputs.aliases }}
+    INPUT_RELEASE_PREFIX: ${{ inputs.release-prefix }}
+    INPUT_TAG_PREFIX: ${{ inputs.tag-prefix }}
