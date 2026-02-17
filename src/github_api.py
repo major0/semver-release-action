@@ -70,18 +70,34 @@ class GitHubAPI:
     ) -> None:
         """Create an annotated tag pointing to a commit.
 
+        If the tag already exists and points to the same commit, this is a no-op.
+        If the tag exists but points to a different commit, raises GithubException.
+
         Args:
             tag_name: Name of the tag to create (e.g., 'v1.2.0-rc1').
             commit_sha: SHA of the commit to tag.
             message: Tag annotation message.
 
         Raises:
-            GithubException: If tag creation fails.
+            GithubException: If tag creation fails or tag exists pointing to different commit.
 
         References:
             - Create a tag object: https://docs.github.com/en/rest/git/tags#create-a-tag-object
             - Create a reference: https://docs.github.com/en/rest/git/refs#create-a-reference
         """
+        # Check if tag already exists (handles workflow reruns gracefully)
+        existing_sha = self.get_tag_commit_sha(tag_name)
+        if existing_sha is not None:
+            if existing_sha == commit_sha:
+                # Tag already exists pointing to same commit - idempotent success
+                return
+            # Tag exists but points to different commit - this is an error
+            raise GithubException(
+                409,
+                {"message": f"Tag '{tag_name}' already exists pointing to different commit {existing_sha[:7]}"},
+                None,
+            )
+
         # Create the tag object (annotated tag)
         tag_object = self._repo.create_git_tag(
             tag=tag_name,

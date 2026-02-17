@@ -92,6 +92,8 @@ class TestCreateTag:
             mock_repo = MagicMock()
             mock_tag_obj = MagicMock(sha="tag-sha-123")
             mock_repo.create_git_tag.return_value = mock_tag_obj
+            # Tag doesn't exist yet
+            mock_repo.get_git_ref.side_effect = GithubException(404, "Not found", None)
             mock_github.return_value.get_repo.return_value = mock_repo
 
             api = GitHubAPI(token="test-token", repository="owner/repo")
@@ -114,6 +116,8 @@ class TestCreateTag:
             mock_repo = MagicMock()
             mock_tag_obj = MagicMock(sha="tag-sha-123")
             mock_repo.create_git_tag.return_value = mock_tag_obj
+            # Tag doesn't exist yet
+            mock_repo.get_git_ref.side_effect = GithubException(404, "Not found", None)
             mock_github.return_value.get_repo.return_value = mock_repo
 
             api = GitHubAPI(token="test-token", repository="owner/repo")
@@ -130,6 +134,8 @@ class TestCreateTag:
         """create_tag raises GithubException on API failure."""
         with patch("src.github_api.Github") as mock_github:
             mock_repo = MagicMock()
+            # Tag doesn't exist yet
+            mock_repo.get_git_ref.side_effect = GithubException(404, "Not found", None)
             mock_repo.create_git_tag.side_effect = GithubException(422, "Tag exists", None)
             mock_github.return_value.get_repo.return_value = mock_repo
 
@@ -137,6 +143,44 @@ class TestCreateTag:
 
             with pytest.raises(GithubException):
                 api.create_tag("v1.0.0", "commit-sha-456")
+
+    def test_create_tag_idempotent_same_commit(self) -> None:
+        """create_tag is idempotent when tag exists pointing to same commit."""
+        with patch("src.github_api.Github") as mock_github:
+            mock_repo = MagicMock()
+            # Tag already exists pointing to same commit (lightweight tag)
+            mock_ref = MagicMock()
+            mock_ref.object.sha = "commit-sha-456"
+            mock_ref.object.type = "commit"
+            mock_repo.get_git_ref.return_value = mock_ref
+            mock_github.return_value.get_repo.return_value = mock_repo
+
+            api = GitHubAPI(token="test-token", repository="owner/repo")
+            # Should not raise, should be a no-op
+            api.create_tag("v1.0.0", "commit-sha-456", "Release message")
+
+            # Should not attempt to create tag or ref
+            mock_repo.create_git_tag.assert_not_called()
+            mock_repo.create_git_ref.assert_not_called()
+
+    def test_create_tag_fails_different_commit(self) -> None:
+        """create_tag raises error when tag exists pointing to different commit."""
+        with patch("src.github_api.Github") as mock_github:
+            mock_repo = MagicMock()
+            # Tag already exists pointing to different commit
+            mock_ref = MagicMock()
+            mock_ref.object.sha = "different-commit-sha"
+            mock_ref.object.type = "commit"
+            mock_repo.get_git_ref.return_value = mock_ref
+            mock_github.return_value.get_repo.return_value = mock_repo
+
+            api = GitHubAPI(token="test-token", repository="owner/repo")
+
+            with pytest.raises(GithubException) as exc_info:
+                api.create_tag("v1.0.0", "commit-sha-456", "Release message")
+
+            assert exc_info.value.status == 409
+            assert "already exists pointing to different commit" in str(exc_info.value.data)
 
 
 class TestUpdateTag:
