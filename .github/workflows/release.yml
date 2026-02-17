@@ -8,6 +8,15 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-rc*'
+    paths-ignore:
+      - '.github/**'
+      - 'tests/**'
+      - 'example/**'
+      - 'scripts/**'
+      - '*.md'
+      - '.pre-commit-config.yaml'
+      - '.yamllint.yml'
+      - 'requirements-dev.txt'
   workflow_dispatch:
     inputs:
       target-branch:
