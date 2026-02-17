@@ -1478,10 +1478,16 @@ class TestPrefixMismatchRejection:
 
         **Validates: Requirements 3.4**
         """
+        from hypothesis import assume
+
         from src.branch import parse_branch
 
         # Branch without prefix (just version numbers)
         branch_name = f"{major}.{minor}"
+
+        # Skip cases where the branch accidentally starts with the prefix
+        # (e.g., prefix='7' and major=710 creates '710.0' which starts with '7')
+        assume(not branch_name.startswith(prefix))
 
         version = parse_branch(branch_name, release_prefix=prefix)
         assert version is None, f"Branch '{branch_name}' without prefix should be rejected"
